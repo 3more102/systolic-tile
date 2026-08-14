@@ -14,7 +14,7 @@
 #   https://github.com/LeThanhHai-1610/DE10-Standard_miniproject/blob/master/Miniproject.qsf
 #   https://ftp.intel.com/Public/Pub/fpgaup/pub/Intel_Material/Boards/DE10-Standard/DE10_Standard_User_Manual.pdf
 #
-# scripts/check_de10_pins.py diffs syn/quartus/build_de10.tcl against this file,
+# scripts/check_pins.py diffs syn/quartus/build_de10.tcl against this file,
 # so a typo in a pin assignment is a build failure rather than a board that
 # quietly does nothing. HEX0-HEX5 are listed for completeness; the current
 # design does not drive them.

@@ -131,7 +131,7 @@ make sim         # simulations only
 make lint        # latch / undriven-net / hierarchy check
 make waves       # run a case with VCD output and open GTKWave
 make check-roms  # verify committed FPGA ROMs still match the model
-make check-pins  # verify DE10-Standard pins against the board reference
+make check-pins  # verify both boards' pins against their board references
 make quartus     # DE10-Standard bitstream
 make vivado      # Zybo Z7-10 bitstream
 make bitstreams  # collect both into bitstreams/ with provenance
@@ -213,12 +213,17 @@ still running.
 
 **Pin assignments are checked, not trusted.** A wrong pin is the worst class of
 FPGA bug — it compiles, closes timing, programs, and then the board simply does
-nothing, with no error to chase. So `syn/quartus/de10_standard_pins.ref` holds
-the board's pin table (transcribed from Terasic's golden top, cross-checked
-against two independent published `.qsf` files and the User Manual), and
-`make check-pins` diffs every assignment against it in CI. It also catches two
-signals landing on the same physical pin, which survives a per-signal review and
-still cannot be routed.
+nothing, with no error to chase. So each board carries a checked-in pin table
+and `make check-pins` diffs every assignment against it in CI:
+
+| Board | Reference | Transcribed from |
+|---|---|---|
+| DE10-Standard | `syn/quartus/de10_standard_pins.ref` | Terasic's golden top, cross-checked against two published `.qsf` files and the User Manual |
+| Zybo Z7-10 | `syn/vivado/zybo_z7_10_pins.ref` | Digilent's official `Zybo-Z7-Master.xdc` |
+
+It also catches two signals landing on the same physical pin, which survives a
+per-signal review and still cannot be routed, and — on the Xilinx side, where
+the I/O standard is set per pin — an `IOSTANDARD` that disagrees with the bank.
 
 ---
 
@@ -233,7 +238,7 @@ tb/                4 self-checking testbenches
 sim/               Makefile + generated vectors
 syn/yosys/         structural check that runs in CI
 syn/quartus/       DE10-Standard build (build_de10.tcl, .sdc, pin reference)
-syn/vivado/        Zybo Z7-10 build (build_zybo.tcl, .xdc)
+syn/vivado/        Zybo Z7-10 build (build_zybo.tcl, .xdc, pin reference)
 bitstreams/        prebuilt .sof / .bit with provenance
 docs/              architecture.md, verification.md
 ```

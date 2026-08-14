@@ -111,11 +111,13 @@ into flip-flops:
 
 ## The pin gate
 
-`make check-pins` diffs every `set_location_assignment` in
-`syn/quartus/build_de10.tcl` against `syn/quartus/de10_standard_pins.ref`, a
-67-pin board reference transcribed from Terasic's golden top and cross-checked
-against two independent published `.qsf` files and the DE10-Standard User Manual
-pin tables.
+`make check-pins` diffs every pin assignment in both boards' constraint files
+against a checked-in reference for that board:
+
+| Board | Constraint file | Reference | Source |
+|---|---|---|---|
+| DE10-Standard | `syn/quartus/build_de10.tcl` | `de10_standard_pins.ref`, 67 pins | Terasic's golden top, cross-checked against two published `.qsf` files and the User Manual |
+| Zybo Z7-10 | `syn/vivado/zybo_z7_10.xdc` | `zybo_z7_10_pins.ref`, 20 pins | Digilent's official `Zybo-Z7-Master.xdc` |
 
 This exists because a wrong pin assignment is uniquely nasty: it synthesises,
 fits, closes timing, generates a bitstream and programs successfully, and then
@@ -125,11 +127,21 @@ kind of thing that should be a checked artifact rather than something reviewed
 by eye once.
 
 The check also flags two signals assigned to the same physical pin, which passes
-per-signal inspection and still cannot be routed.
+per-signal inspection and still cannot be routed. On the Xilinx side, where the
+I/O standard is written per pin rather than set globally, it additionally checks
+`IOSTANDARD` — driving LVCMOS33 into a bank the board wired for 1.8 V is a
+hardware hazard, not a typo.
 
-Current state: 22 assignments, all matching. The checker is verified against a
-deliberately corrupted pin to confirm it actually fails rather than passing
-vacuously.
+One detail worth recording: Digilent ships its master `.xdc` with every line
+commented out, to be uncommented as needed. A checker that ignored that would
+parse those template lines as real assignments and report a perfect match
+against a constraint file that assigns *nothing*. Comment lines are therefore
+skipped before matching.
+
+Current state: 22 DE10-Standard and 9 Zybo assignments, all matching. Both
+checkers are verified against deliberately corrupted inputs — a wrong pin, a
+wrong `IOSTANDARD`, a signal that does not exist on the board, and two signals
+on one pin — to confirm they actually fail rather than passing vacuously.
 
 ---
 

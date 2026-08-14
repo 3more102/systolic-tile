@@ -28,9 +28,9 @@ jobs:
         run: make check-roms
 
       # A wrong pin assignment compiles, closes timing, programs, and then does
-      # nothing at all. Diffed against a board reference so it fails loudly here
-      # instead of silently on a desk.
-      - name: DE10-Standard pins match the board reference
+      # nothing at all. Both boards are diffed against their vendor pin tables
+      # so it fails loudly here instead of silently on a desk.
+      - name: Board pins match the vendor references
         run: make check-pins
 
       - name: Run all simulations

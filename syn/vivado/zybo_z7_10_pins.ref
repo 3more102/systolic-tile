@@ -1,0 +1,59 @@
+# Zybo Z7-10 user-I/O pin reference
+#
+# Board:  Digilent Zybo Z7-10 (Rev. B)
+# Device: xc7z010clg400-1 (Zynq-7000 SoC)
+# I/O standard for every pin below: LVCMOS33
+#
+# PROVENANCE
+# ----------
+# Transcribed from Digilent's official master constraint file, which covers
+# both the Zybo Z7-10 and the Z7-20 (they share a board layout and differ only
+# in the PL device fitted):
+#
+#   https://github.com/Digilent/digilent-xdc/blob/master/Zybo-Z7-Master.xdc
+#
+# scripts/check_pins.py diffs syn/vivado/zybo_z7_10.xdc against this file, so a
+# typo in a pin or an I/O standard is a build failure rather than a board that
+# quietly does nothing. Signals this design does not drive are listed for
+# completeness, so that a misspelled port name is reported as unknown rather
+# than silently accepted.
+#
+# NAMING
+# ------
+# Digilent names the switches sw[0]..sw[3]. This design uses a single switch and
+# declares it as a scalar port `sw0`, so that name is listed alongside the board
+# name for the same physical pin. Both are correct; only `sw0` is assigned.
+#
+# format: <signal> <pin> <iostandard>
+
+# 125 MHz PL oscillator
+sysclk K17 LVCMOS33
+
+# Slide switches
+sw[0] G15 LVCMOS33
+sw0 G15 LVCMOS33
+sw[1] P15 LVCMOS33
+sw[2] W13 LVCMOS33
+sw[3] T16 LVCMOS33
+
+# Pushbuttons (read high when pressed)
+btn[0] K18 LVCMOS33
+btn[1] P16 LVCMOS33
+btn[2] K19 LVCMOS33
+btn[3] Y16 LVCMOS33
+
+# User LEDs LD0-LD3
+led[0] M14 LVCMOS33
+led[1] M15 LVCMOS33
+led[2] G14 LVCMOS33
+led[3] D18 LVCMOS33
+
+# RGB LED LD5
+led5_r Y11 LVCMOS33
+led5_g T5 LVCMOS33
+led5_b Y12 LVCMOS33
+
+# RGB LED LD6
+led6_r V16 LVCMOS33
+led6_g F17 LVCMOS33
+led6_b M17 LVCMOS33
