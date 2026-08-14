@@ -292,6 +292,86 @@ What that leaves uncovered, plainly:
 
 ---
 
+## The gate-level gate
+
+Everything above simulates the RTL. `make gatelevel` synthesises it to gates with
+Yosys and runs the **same** self-checking testbench against the netlist, against
+the **same** golden vectors.
+
+```
+$ make gatelevel
+  gate-level: 8x8, MAX_M=8
+  using: Yosys 0.52 (git sha1 fee39a3284c90249e1d9684cf6944ffbbcbb8f90)
+  synth  105562 cells
+  gates  basic: matches the model over 0, 1, 2 backpressure modes
+  gates  single: matches the model over 0, 1, 2 backpressure modes
+  gates  sat: matches the model over 0, 1, 2 backpressure modes
+  self-test  a truncating requantiser is caught
+```
+
+Three things this catches that RTL simulation cannot:
+
+- **RTL that simulates one way and synthesises another** — the entire reason
+  gate-level simulation exists.
+- **X propagation from reset.** A netlist flip-flop starts at `x` and only a real
+  reset path clears it. RTL `logic` is often quietly forgiving about state that
+  is never actually initialised.
+- **A construct Icarus accepts that no synthesiser will map at all.** `make lint`
+  already catches much of this; running the result is the stronger check.
+
+`sat` earns its place in the case list: it clamps on roughly 55% of its outputs,
+so it exercises the saturation logic, which is the part a synthesiser is most
+likely to rewrite into something structurally unrecognisable.
+
+### One testbench, two DUTs
+
+A gate netlist has no parameters — everything was resolved at elaboration — but
+`tb_systolic_tile` instantiates `systolic_tile` with an override list.
+`gl/gl_shim.sv` takes that name and that parameter list, ignores the values, and
+wires the ports through to the netlist, which the driver renames to
+`systolic_tile_gates` so the two can coexist.
+
+Ignoring the parameters is safe rather than sloppy: `ROWS` and `COLS` still set
+the shim's port widths, so a netlist built at a different geometry than the
+testbench binary fails to elaborate. `MAX_M` is the one with no such backstop —
+it sets the accumulator depth, not a port width — so the driver passes one
+variable to both yosys and iverilog.
+
+The testbench itself needed two small changes, both visible in `tb/`:
+
+- **`TB_MAX_M`**, alongside the existing `TB_ROWS`/`TB_COLS`, because `synth`
+  maps the accumulator to flip-flops. At the shipped `MAX_M=256` that is 64 kbit
+  of them plus the read mux, and Icarus would be elaborating for a very long
+  time. At 8 rows the netlist is ~105k cells, which takes about seven minutes.
+- **`TB_GATELEVEL`**, which switches off the testbench's only two hierarchical
+  probes. Both read `dut.en` for the stall and bubble counters, and `en` is a net
+  that does not survive synthesis — it is dissolved into the logic driving each
+  flip-flop. Those two counters report `n/a` in the gate build. Nothing that
+  decides PASS or FAIL is affected: every check is at the ports and is byte-for-
+  byte the same code in both builds.
+
+### The proof can still fail
+
+`--self-test` re-runs the flow against a copy of the RTL with the round-half-up
+term dropped from the requantiser, turning it into a truncating one. It
+synthesises perfectly, it is a plausible thing to write by accident, and it is
+invisible to anything that does not compare bit-exactly against the model — which
+is what makes it the right thing to demand this flow notice. It runs at 4×4,
+because what is under test is that the netlist reaches the testbench's verdict at
+all, and that is not geometry-dependent; at 8×8 it would cost another seven
+minutes of elaboration to learn the same fact.
+
+### What it does not prove
+
+This is **Yosys's** generic synthesis, not Quartus's or Vivado's. It says nothing
+about either vendor's optimiser, nothing about a post-route netlist, and nothing
+about timing — these are zero-delay gates, and the SDC/XDC constraints are what
+cover that side. It is evidence that the RTL means the same thing after *a*
+synthesiser has had its way with it, which is a different and weaker claim than
+the two vendor builds closing timing.
+
+---
+
 ## The pin gate
 
 `make check-pins` diffs every pin assignment in both boards' constraint files
@@ -366,9 +446,11 @@ a verification story:
   is the whole of it. Nothing is unbounded, nothing covers the datapath, and
   nothing there says the tile computes the right numbers — that rests entirely
   on simulation against the model.
-- **No gate-level simulation.** Post-synthesis and post-route netlists are not
-  simulated, so nothing here would catch a synthesis-tool bug or an
-  X-propagation difference at reset.
+- **Gate-level is Yosys's netlist, not the vendors'.** `make gatelevel` runs the
+  testbench against a synthesised netlist, but the synthesiser is Yosys, the
+  accumulator is shrunk to 8 rows, and the gates are zero-delay. Neither
+  Quartus's nor Vivado's optimiser is covered, no post-route netlist is
+  simulated, and there is no timing anywhere in it.
 - **Not yet run on hardware.** Both bitstreams build and the self-test passes in
   simulation, but neither has been programmed onto a physical board.
 - **`MAX_M` is not enforced in hardware.** Streaming more than `MAX_M` output

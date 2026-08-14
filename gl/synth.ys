@@ -1,0 +1,23 @@
+# -----------------------------------------------------------------------------
+# Turn the elaborated design into a gate netlist Icarus can simulate.
+#
+# The caller has already read the RTL and run `hierarchy` with the geometry and
+# MAX_M it wants, so this file must not do either -- it would undo the -chparam
+# overrides scripts/gatelevel.sh just applied. The caller also owns the
+# write_verilog, because only it knows where the netlist should land.
+#
+# This is Yosys's generic synthesis, not Quartus's or Vivado's. What it proves is
+# that the RTL means the same thing after *a* synthesiser has had its way with
+# it, and that the result comes up cleanly from reset. It is not a substitute for
+# the vendor builds, and it is not a claim about either vendor's optimiser.
+# -----------------------------------------------------------------------------
+
+# -flatten because the point is to simulate gates. Module boundaries surviving
+# into the netlist would leave whole subtrees un-optimised and un-mapped, which
+# is the part of the transformation most worth checking.
+synth -top systolic_tile -flatten
+
+# The netlist would otherwise be a second module named systolic_tile, clashing
+# with gl/gl_shim.sv -- which has to keep that name, because it is the name
+# tb_systolic_tile instantiates.
+rename systolic_tile systolic_tile_gates

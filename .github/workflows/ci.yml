@@ -83,3 +83,24 @@ jobs:
       # so the job cannot go green while checking nothing.
       - name: Backpressure holds, and the proof can still fail
         run: make formal
+
+  gatelevel:
+    name: gate-level simulation (Yosys + Icarus)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Yosys, Icarus Verilog and numpy
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends yosys iverilog
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -r model/requirements.txt
+
+      # Synthesises the RTL to gates and re-runs the same self-checking
+      # testbench against the netlist, against the same golden vectors. Catches
+      # RTL that simulates one way and synthesises another, and X propagation
+      # from reset that `logic` in RTL is forgiving about. --self-test then
+      # proves the flow can still fail, using a truncating requantiser.
+      - name: Gates match the model, and the check can still fail
+        run: make gatelevel

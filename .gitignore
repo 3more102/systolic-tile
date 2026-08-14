@@ -7,6 +7,9 @@ sim/vectors/
 # ---- yosys ----
 syn/yosys/stat*.txt
 
+# ---- gate-level ----
+gl/work/
+
 # ---- quartus ----
 syn/quartus/db/
 syn/quartus/incremental_db/

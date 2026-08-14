@@ -38,6 +38,25 @@
   `define TB_COLS 8
 `endif
 
+// The stall and bubble counters below are the only things in this testbench that
+// reach inside the DUT, for `dut.en`. A synthesised netlist has no such net --
+// the enable is dissolved into the logic driving each flip-flop -- so the
+// gate-level build (scripts/gatelevel.sh) defines TB_GATELEVEL and those two
+// counters report "n/a" instead. Nothing that decides PASS or FAIL is affected:
+// every check is at the ports and is identical in both builds.
+`ifdef TB_GATELEVEL
+  `define DUT_EN 1'b1
+`else
+  `define DUT_EN dut.en
+`endif
+
+// The accumulator depth the DUT is built with. Overridable for the same reason
+// the geometry is: gate-level simulation maps the accumulator to flip-flops, and
+// the shipped 256 rows would be 64 kbit of them.
+`ifndef TB_MAX_M
+  `define TB_MAX_M 256
+`endif
+
 module tb_systolic_tile;
 
     localparam int ROWS  = `TB_ROWS;
@@ -77,7 +96,7 @@ module tb_systolic_tile;
         .ROWS       (ROWS),
         .COLS       (COLS),
         .ACC_W      (ACC_W),
-        .MAX_M      (256),
+        .MAX_M      (`TB_MAX_M),
         .FIFO_DEPTH (8)
     ) dut (
         .clk        (clk),
@@ -179,8 +198,8 @@ module tb_systolic_tile;
             end
 
             if (sat_hit)                        sat_beats     = sat_beats + 1;
-            if (busy && !dut.en)                stall_cycles  = stall_cycles + 1;
-            if (busy && dut.en && a_ready && !a_valid)
+            if (busy && !`DUT_EN)               stall_cycles  = stall_cycles + 1;
+            if (busy && `DUT_EN && a_ready && !a_valid)
                                                 bubble_cycles = bubble_cycles + 1;
         end
     end
@@ -326,8 +345,13 @@ module tb_systolic_tile;
         if (bp_mode == 0 && first_a_cycle >= 0 && first_y_cycle >= 0)
             $display("    pipeline depth : %0d cycles (first activation -> first result)",
                      first_y_cycle - first_a_cycle);
+`ifdef TB_GATELEVEL
+        $display("    stall cycles   : n/a (no `en` net in a gate netlist)");
+        $display("    input bubbles  : n/a");
+`else
         $display("    stall cycles   : %0d", stall_cycles);
         $display("    input bubbles  : %0d", bubble_cycles);
+`endif
         $display("    clamping beats : %0d", sat_beats);
         if (errors == 0) $display("    RESULT: PASS");
         else             $display("    RESULT: FAIL (%0d errors)", errors);

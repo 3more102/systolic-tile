@@ -19,14 +19,16 @@ INT8 in, INT32 accumulate, INT8 out. 64 MACs per cycle.
 
 Every number this design produces is **bit-identical to `model/golden.py`** —
 including the awkward cases, like round-half-up on negative values and INT8
-saturation. That is checked three ways:
+saturation. That is checked four ways:
 
 1. **In simulation**, over 24 configurations covering K-tiling, ReLU, heavy
    saturation, single-beat streams, aggressive backpressure, and four array
    geometries including a non-square one.
 2. **In the arithmetic unit specifically**, over 320 vectors that each carry
    their own quantisation config.
-3. **On the FPGA itself** — the board runs the same vectors from ROM, compares
+3. **After synthesis**, with the same testbench re-run against a gate netlist —
+   so the claim survives a synthesiser rewriting the design.
+4. **On the FPGA itself** — the board runs the same vectors from ROM, compares
    against the same golden results, and lights one LED.
 
 The model, the testbench and the hardware self-test all read the *same generated
@@ -137,6 +139,38 @@ Writing the freeze property exactly also turned up an exception worth knowing
 about. Full write-up in
 [docs/verification.md](docs/verification.md#the-formal-gate).
 
+### Gate-level — the netlist checked against the same golden vectors
+
+Everything above simulates the RTL. `make gatelevel` synthesises it to gates and
+runs the *same* self-checking testbench against the netlist:
+
+```
+$ make gatelevel
+  gate-level: 8x8, MAX_M=8
+  synth  105562 cells
+  gates  basic: matches the model over 0, 1, 2 backpressure modes
+  gates  single: matches the model over 0, 1, 2 backpressure modes
+  gates  sat: matches the model over 0, 1, 2 backpressure modes
+  self-test  a truncating requantiser is caught
+```
+
+This catches what RTL simulation structurally cannot: RTL that simulates one way
+and synthesises another, and X propagation from reset — a netlist flip-flop
+starts at `x` and only a real reset path clears it, where RTL `logic` is often
+quietly forgiving about state nothing ever initialises.
+
+The same testbench drives both DUTs. A netlist has no parameters, so
+[`gl/gl_shim.sv`](gl/gl_shim.sv) takes the name and the parameter list the
+testbench expects and wires the ports through — with `ROWS`/`COLS` still setting
+the port widths, so a netlist built at the wrong geometry refuses to elaborate.
+And the self-test drops the round-half-up term from the requantiser: it
+synthesises perfectly, and it is invisible to anything that does not compare
+bit-exactly against `model/golden.py`.
+
+Caveat worth stating up front: this is **Yosys's** synthesis, not Quartus's or
+Vivado's, and the gates are zero-delay. It is evidence the RTL survives *a*
+synthesiser, not a claim about either vendor's optimiser.
+
 ### Hardware
 
 Both boards build and both close timing.
@@ -207,6 +241,7 @@ structural check. Other targets:
 make sim         # simulations only
 make lint        # structural check, re-run at all four array geometries
 make formal      # bounded model check of the backpressure scheme
+make gatelevel   # synthesise to gates, re-run the testbench on the netlist
 make waves       # run a case with VCD output and open GTKWave
 make check-roms  # verify committed FPGA ROMs still match the model
 make check-pins  # verify both boards' pins against their board references
@@ -315,6 +350,7 @@ model/             golden.py (the specification), gen_vectors.py
 tb/                4 self-checking testbenches
 sim/               Makefile + generated vectors
 fv/                lowering recipe for the bounded model check
+gl/                synth recipe + parameter shim for gate-level simulation
 syn/yosys/         structural check that runs in CI, at every geometry
 syn/quartus/       DE10-Standard build (build_de10.tcl, .sdc, pin reference)
 syn/vivado/        Zybo Z7-10 build (build_zybo.tcl, .xdc, pin reference)
@@ -341,10 +377,11 @@ rejects it, correctly. All input ports are therefore declared `input wire`.
 
 Stated plainly — see [docs/verification.md](docs/verification.md#what-this-does-not-prove)
 for the full list. In short: the formal proof is bounded at 32 cycles and one
-geometry and says nothing about the datapath, there is no gate-level simulation,
-only the 8×8 build is put through a vendor tool (the other geometries are
-simulated and structurally checked, so they have no timing or utilisation
-result), and nothing has run on physical hardware yet.
+geometry and says nothing about the datapath, the gate-level simulation runs
+Yosys's netlist rather than either vendor's and has no timing in it, only the 8×8
+build is put through a vendor tool (the other geometries are simulated and
+structurally checked, so they have no timing or utilisation result), and nothing
+has run on physical hardware yet.
 
 ---
 
