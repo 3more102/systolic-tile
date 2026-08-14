@@ -1,0 +1,12 @@
+# Normalise everything to LF in the repository.
+#
+# This is not cosmetic: the repo is authored on Windows but CI runs on Linux,
+# and a shell script checked in with CRLF fails there with a "bad interpreter"
+# error that gives no hint about line endings.
+* text=auto eol=lf
+
+# Binary
+*.bit  binary
+*.sof  binary
+*.dcp  binary
+*.vcd  binary

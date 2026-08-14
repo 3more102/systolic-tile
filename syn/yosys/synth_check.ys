@@ -1,0 +1,47 @@
+# -----------------------------------------------------------------------------
+# Tool-independent synthesis sanity check.
+#
+# This is not a target build -- it is the cheap gate that runs on every push, to
+# catch the class of mistakes that simulate fine and then bite in the vendor
+# tool: accidental latches, undriven or multiply-driven nets, and a hierarchy
+# that does not actually elaborate.
+#
+# Run:  yosys -q syn/yosys/synth_check.ys
+# -----------------------------------------------------------------------------
+
+read_verilog -sv rtl/mac_pe.sv
+read_verilog -sv rtl/skew_buffer.sv
+read_verilog -sv rtl/pe_array.sv
+read_verilog -sv rtl/accum_bank.sv
+read_verilog -sv rtl/requant.sv
+read_verilog -sv rtl/out_fifo.sv
+read_verilog -sv rtl/tile_ctrl.sv
+read_verilog -sv rtl/systolic_tile.sv
+
+# -check fails on instantiations of modules that do not exist.
+hierarchy -check -top systolic_tile
+
+proc
+opt -full
+fsm
+opt -full
+
+# -nomap keeps the accumulator RAM as a $mem cell. A full generic synth would
+# flatten those 64 kbit into flip-flops and report a six-figure cell count that
+# says nothing about the real design -- on an FPGA it is one block RAM.
+memory -nomap
+opt -full
+
+# Fails on undriven wires, multiple drivers and combinational loops.
+check -assert
+
+# A latch here means an always_comb or a case that does not assign on every
+# path. In an array this large it would be easy to miss by eye.
+select -assert-none t:$dlatch
+select -assert-none t:$dlatchsr
+select -assert-none t:$sr
+
+# Coarse-grain cell counts: multipliers, adders, registers and memories, which
+# is the level at which this design's cost is actually interesting. Real area
+# and Fmax come from the vendor builds in syn/quartus and syn/vivado.
+tee -o syn/yosys/stat.txt stat -top systolic_tile

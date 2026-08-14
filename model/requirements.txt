@@ -1,0 +1,5 @@
+# The reference model needs nothing but numpy. Stimulus is drawn from
+# numpy.random.default_rng (PCG64) with fixed seeds, which is reproducible
+# across numpy versions and platforms -- that is what lets CI verify the
+# committed FPGA ROMs by regenerating them and diffing.
+numpy>=1.24

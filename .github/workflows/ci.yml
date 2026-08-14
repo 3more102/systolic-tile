@@ -1,0 +1,56 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  simulate:
+    name: simulate (Icarus)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Icarus Verilog and numpy
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends iverilog
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -r model/requirements.txt
+          iverilog -V | head -1
+
+      # Proves the ROMs burned into the FPGA build still match the reference
+      # model. Without this, the board could be self-testing against stale
+      # expectations and still light its PASS LED.
+      - name: Committed FPGA ROMs match the model
+        run: make check-roms
+
+      - name: Run all simulations
+        run: make sim
+
+  lint:
+    name: structural check (Yosys)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Yosys
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends yosys
+          yosys -V
+
+      # Catches the failures that simulate cleanly and then bite in the vendor
+      # tool: inferred latches, undriven and multiply-driven nets, hierarchy
+      # that does not elaborate.
+      - name: No latches, no undriven or multiply-driven nets
+        run: make lint
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: yosys-cell-stats
+          path: syn/yosys/stat.txt
+          if-no-files-found: ignore

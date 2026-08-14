@@ -1,0 +1,51 @@
+# ---- simulation ----
+sim/work/
+sim/vectors/
+*.vcd
+*.vvp
+
+# ---- yosys ----
+syn/yosys/stat.txt
+
+# ---- quartus ----
+syn/quartus/db/
+syn/quartus/incremental_db/
+syn/quartus/output_files/
+syn/quartus/*.qpf
+syn/quartus/*.qsf
+syn/quartus/*.qws
+syn/quartus/*.rpt
+syn/quartus/*.summary
+syn/quartus/*.sof
+syn/quartus/*.pin
+syn/quartus/*.jdi
+syn/quartus/*.smsg
+syn/quartus/*.done
+syn/quartus/*.log
+syn/quartus/c5_pin_model_dump.txt
+
+# ---- vivado ----
+syn/vivado/build/
+syn/vivado/.Xil/
+syn/vivado/*.log
+syn/vivado/*.jou
+syn/vivado/*.str
+syn/vivado/*.rpt
+syn/vivado/clockInfo.txt
+syn/vivado/tight_setup_hold_pins.txt
+
+# ---- python ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# ---- editors / os ----
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+.DS_Store
+
+# git internal scratch
+.git-rewrite/
