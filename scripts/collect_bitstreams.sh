@@ -25,6 +25,20 @@ else
     tree_state="clean"
 fi
 
+# The commit alone is a weak claim in both directions: a later commit that only
+# touches docs makes a perfectly current bitstream look stale, and re-running
+# this script without rebuilding would re-stamp old binaries with a new commit.
+# So also fingerprint the inputs that actually determine each bitstream -- the
+# RTL tree plus that board's build script and constraints. Doc-only commits do
+# not move it; a real source change does.
+fingerprint() {
+    { git -C "$ROOT" rev-parse "HEAD:rtl"
+      for f in "$@"; do git -C "$ROOT" rev-parse "HEAD:$f"; done
+    } | sha256sum | cut -c1-16
+}
+fp_de10=$(fingerprint syn/quartus/build_de10.tcl syn/quartus/de10_standard.sdc)
+fp_zybo=$(fingerprint syn/vivado/build_zybo.tcl syn/vivado/zybo_z7_10.xdc)
+
 # if/then rather than [ ... ] && ...; under `set -e` a false test at the end of
 # a line is itself a failure, and a missing bitstream should reach the error
 # message below rather than exiting silently here.
@@ -112,13 +126,35 @@ build scripts in \`syn/\`, which anyone can re-run to reproduce them.
 | DSP | $q_dsp | $v_dsp |
 | Block RAM | $q_ram | $v_ram |
 | Timing | Fmax $q_fmax | setup WNS $v_wns |
+| Source fingerprint | \`$fp_de10\` | \`$fp_zybo\` |
 
 ## Provenance
 
-- Source commit: \`$commit\`
-- Working tree at build time: **$tree_state**
+- Collected at commit: \`$commit\`
+- Working tree at collection time: **$tree_state**
 
-SHA-256:
+The **source fingerprint** identifies the inputs that actually determine each
+bitstream -- the RTL tree plus that board's build script and constraints -- so a
+later commit touching only docs does not make a current bitstream look stale.
+Recompute it from a clone and compare:
+
+\`\`\`
+{ git rev-parse HEAD:rtl
+  git rev-parse HEAD:syn/quartus/build_de10.tcl
+  git rev-parse HEAD:syn/quartus/de10_standard.sdc
+} | sha256sum | cut -c1-16          # -> $fp_de10
+
+{ git rev-parse HEAD:rtl
+  git rev-parse HEAD:syn/vivado/build_zybo.tcl
+  git rev-parse HEAD:syn/vivado/zybo_z7_10.xdc
+} | sha256sum | cut -c1-16          # -> $fp_zybo
+\`\`\`
+
+A mismatch means the sources moved and the binary here predates them. It does
+not by itself mean the bitstream is wrong -- rerun \`make quartus\`/\`make vivado\`
+and \`make bitstreams\` to bring them back into agreement.
+
+SHA-256 of the binaries:
 
 \`\`\`
 $q_sha  de10_standard.sof

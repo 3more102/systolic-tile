@@ -16,13 +16,35 @@ build scripts in `syn/`, which anyone can re-run to reproduce them.
 | DSP | 48 / 112 ( 43 % ) | 80 / 80 ( 100.00 % ) |
 | Block RAM | 15 / 553 ( 3 % ) | 4 / 60 ( 6.67 % ) |
 | Timing | Fmax 100.54 MHz | setup WNS 0.508 ns |
+| Source fingerprint | `20103fde44291d49` | `4af3a2dc69eff9d2` |
 
 ## Provenance
 
-- Source commit: `e57d5b10b4e0cbf8fdaef1e10460d54300513297`
-- Working tree at build time: **clean**
+- Collected at commit: `b477d6bcb6e98571ef0267660254225e00cdfc82`
+- Working tree at collection time: **clean**
 
-SHA-256:
+The **source fingerprint** identifies the inputs that actually determine each
+bitstream -- the RTL tree plus that board's build script and constraints -- so a
+later commit touching only docs does not make a current bitstream look stale.
+Recompute it from a clone and compare:
+
+```
+{ git rev-parse HEAD:rtl
+  git rev-parse HEAD:syn/quartus/build_de10.tcl
+  git rev-parse HEAD:syn/quartus/de10_standard.sdc
+} | sha256sum | cut -c1-16          # -> 20103fde44291d49
+
+{ git rev-parse HEAD:rtl
+  git rev-parse HEAD:syn/vivado/build_zybo.tcl
+  git rev-parse HEAD:syn/vivado/zybo_z7_10.xdc
+} | sha256sum | cut -c1-16          # -> 4af3a2dc69eff9d2
+```
+
+A mismatch means the sources moved and the binary here predates them. It does
+not by itself mean the bitstream is wrong -- rerun `make quartus`/`make vivado`
+and `make bitstreams` to bring them back into agreement.
+
+SHA-256 of the binaries:
 
 ```
 91daa45e1e371ccba556306ef77dcc46e612f392baffbb2990029e1624487a2f  de10_standard.sof
