@@ -46,14 +46,30 @@ COLS = 8
 # this" -- which is how the saturation case is forced to clamp hard without
 # clamping *everything* and thereby testing nothing else.
 #
-# name        M    K   relu  amplitude  quant
+# `rows`/`cols` are the array geometry the case is meant to run against. Most
+# cases use the 8x8 tile the boards build; the last three exist purely to check
+# that the RTL's ROWS/COLS parameters are real rather than decorative.
+#
+# Appending only: the seed is the list index, so inserting a case in the middle
+# would silently regenerate every case after it and produce a spurious diff.
+#
+# name        M    K   relu  amp  quant        rows cols
 CASES = [
-    ("basic",   4,   8, False,   8, (4096, 14)),   # scale exactly 1/4, hand-checkable
-    ("single",  1,   8, False, 128, None),         # shortest legal stream
-    ("multi",  16,  32, True,  128, None),         # 4 passes of K tiling + relu
-    ("sat",     8,   8, False, 128, 6.0),          # ~6x overscale: clamps hard, not totally
-    ("stress", 64,  64, False, 128, None),         # 8 passes, full INT8 range
+    ("basic",   4,   8, False,   8, (4096, 14),   8,   8),  # scale exactly 1/4, hand-checkable
+    ("single",  1,   8, False, 128, None,         8,   8),  # shortest legal stream
+    ("multi",  16,  32, True,  128, None,         8,   8),  # 4 passes of K tiling + relu
+    ("sat",     8,   8, False, 128, 6.0,          8,   8),  # ~6x overscale: clamps hard, not totally
+    ("stress", 64,  64, False, 128, None,         8,   8),  # 8 passes, full INT8 range
+    ("tiny",    6,  12, True,  128, None,         4,   4),  # smaller array, 3 passes
+    ("rect",    8,  16, False, 128, None,         4,   8),  # ROWS != COLS -- see below
+    ("wide",    8,  32, False, 128, None,        16,  16),  # larger array, wider beats
 ]
+
+# `rect` is the one that earns its place. Every other case is square, and a
+# square array hides an entire bug class: swapping ROWS for COLS -- in the skew
+# depth, the deskew depth, the drain length, a bus width -- is a no-op when they
+# are equal. ROWS=4, COLS=8 makes each of those a different number, so an
+# interchange stops being invisible.
 
 # The case burned into the FPGA self-test ROMs.
 SELFTEST_CASE = "multi"
@@ -64,14 +80,15 @@ def write_lines(path: Path, lines) -> None:
     path.write_text("\n".join(lines) + "\n")
 
 
-def build_case(name: str, m: int, k: int, relu: bool, amp: int, quant, seed: int):
-    if k % ROWS:
-        raise ValueError(f"case {name}: K={k} must be a multiple of ROWS={ROWS}")
-    passes = k // ROWS
+def build_case(name: str, m: int, k: int, relu: bool, amp: int, quant, seed: int,
+               rows: int = ROWS, cols: int = COLS):
+    if k % rows:
+        raise ValueError(f"case {name}: K={k} must be a multiple of ROWS={rows}")
+    passes = k // rows
 
     rng = np.random.default_rng(seed)
     a = rng.integers(-amp, amp, size=(m, k), dtype=np.int64)
-    w = rng.integers(-amp, amp, size=(k, COLS), dtype=np.int64)
+    w = rng.integers(-amp, amp, size=(k, cols), dtype=np.int64)
 
     acc = golden.matmul_int32(a, w)
     golden.check_acc_range(acc)
@@ -80,7 +97,7 @@ def build_case(name: str, m: int, k: int, relu: bool, amp: int, quant, seed: int
     # shift the result visibly, small enough that it cannot dominate. A fixed
     # absolute range would swamp the small cases entirely.
     bias_amp = max(1, int(np.percentile(np.abs(acc), 50)) // 4)
-    bias = rng.integers(-bias_amp, bias_amp + 1, size=COLS, dtype=np.int64)
+    bias = rng.integers(-bias_amp, bias_amp + 1, size=cols, dtype=np.int64)
 
     biased = acc + bias[np.newaxis, :]
     if isinstance(quant, tuple):
@@ -97,7 +114,7 @@ def build_case(name: str, m: int, k: int, relu: bool, amp: int, quant, seed: int
     lo = 0 if relu else -128
     clamped = 0
     for i in range(m):
-        for j in range(COLS):
+        for j in range(cols):
             v = (int(acc[i, j]) + int(bias[j])) * mult
             if shift:
                 v = (v + (1 << (shift - 1))) >> shift
@@ -105,7 +122,7 @@ def build_case(name: str, m: int, k: int, relu: bool, amp: int, quant, seed: int
                 clamped += 1
 
     return dict(
-        name=name, m=m, k=k, passes=passes, relu=relu,
+        name=name, m=m, k=k, passes=passes, relu=relu, rows=rows, cols=cols,
         mult=mult, shift=shift, a=a, w=w, bias=bias, acc=acc, y=y,
         clamped=clamped,
     )
@@ -113,27 +130,29 @@ def build_case(name: str, m: int, k: int, relu: bool, amp: int, quant, seed: int
 
 def emit_case(case: dict, outdir: Path) -> None:
     name = case["name"]
+    rows, cols = case["rows"], case["cols"]
     outdir.mkdir(parents=True, exist_ok=True)
 
     write_lines(outdir / "meta.hex", [
         f"{case['m']:04x}",
         f"{case['k']:04x}",
-        f"{COLS:04x}",
+        f"{cols:04x}",
         f"{case['passes']:04x}",
         f"{case['mult']:04x}",
         f"{case['shift']:04x}",
         f"{int(case['relu']):04x}",
     ])
     write_lines(outdir / "a.hex",
-                list(golden.activation_beats(case["a"], ROWS, case["passes"])))
+                list(golden.activation_beats(case["a"], rows, case["passes"])))
     write_lines(outdir / "w.hex",
-                list(golden.weight_beats(case["w"], ROWS, COLS, case["passes"])))
+                list(golden.weight_beats(case["w"], rows, cols, case["passes"])))
     write_lines(outdir / "bias.hex", [golden.pack_lanes(case["bias"], 32)])
     write_lines(outdir / "y.hex", list(golden.result_beats(case["y"])))
 
     pct = 100.0 * case["clamped"] / case["y"].size
-    print(f"  {name:8s} M={case['m']:3d} K={case['k']:3d} passes={case['passes']} "
-          f"relu={int(case['relu'])} mult={case['mult']:5d} shift={case['shift']:2d} "
+    print(f"  {name:8s} {rows:2d}x{cols:<2d} M={case['m']:3d} K={case['k']:3d} "
+          f"passes={case['passes']} relu={int(case['relu'])} "
+          f"mult={case['mult']:5d} shift={case['shift']:2d} "
           f"clamped={pct:5.1f}%")
 
 
@@ -206,30 +225,31 @@ def emit_requant(outdir: Path) -> None:
 # ---------------------------------------------------------------------------
 
 def emit_fpga(case: dict, romdir: Path, params: Path) -> None:
+    rows, cols = case["rows"], case["cols"]
     romdir.mkdir(parents=True, exist_ok=True)
     write_lines(romdir / "selftest_a.hex",
-                list(golden.activation_beats(case["a"], ROWS, case["passes"])))
+                list(golden.activation_beats(case["a"], rows, case["passes"])))
     write_lines(romdir / "selftest_w.hex",
-                list(golden.weight_beats(case["w"], ROWS, COLS, case["passes"])))
+                list(golden.weight_beats(case["w"], rows, cols, case["passes"])))
     write_lines(romdir / "selftest_bias.hex", [golden.pack_lanes(case["bias"], 32)])
     write_lines(romdir / "selftest_y.hex", list(golden.result_beats(case["y"])))
 
     params.write_text(
         "// AUTO-GENERATED by model/gen_vectors.py -- do not edit by hand.\n"
         f"// Source case: '{case['name']}' (M={case['m']}, K={case['k']}, "
-        f"N={COLS}, relu={int(case['relu'])})\n"
+        f"N={cols}, relu={int(case['relu'])})\n"
         "//\n"
         "// Regenerate with:  python3 model/gen_vectors.py\n"
         "// CI checks these stay in sync with the model via --check.\n"
-        f"localparam int ST_ROWS    = {ROWS};\n"
-        f"localparam int ST_COLS    = {COLS};\n"
+        f"localparam int ST_ROWS    = {rows};\n"
+        f"localparam int ST_COLS    = {cols};\n"
         f"localparam int ST_M       = {case['m']};\n"
         f"localparam int ST_PASSES  = {case['passes']};\n"
         f"localparam int ST_MULT    = {case['mult']};\n"
         f"localparam int ST_SHIFT   = {case['shift']};\n"
         f"localparam int ST_RELU    = {int(case['relu'])};\n"
         f"localparam int ST_A_DEPTH = {case['passes'] * case['m']};\n"
-        f"localparam int ST_W_DEPTH = {case['passes'] * ROWS};\n"
+        f"localparam int ST_W_DEPTH = {case['passes'] * rows};\n"
         f"localparam int ST_Y_DEPTH = {case['m']};\n"
     )
     print(f"  fpga     self-test ROMs from case '{case['name']}' "
@@ -244,13 +264,18 @@ def main() -> int:
 
     print("generating vectors:")
     cases = {}
-    for seed, (name, m, k, relu, amp, quant) in enumerate(CASES):
-        case = build_case(name, m, k, relu, amp, quant, seed=seed)
+    for seed, (name, m, k, relu, amp, quant, rows, cols) in enumerate(CASES):
+        case = build_case(name, m, k, relu, amp, quant, seed=seed,
+                          rows=rows, cols=cols)
         cases[name] = case
         emit_case(case, SIM_VECTORS / name)
 
     emit_requant(SIM_VECTORS / "requant")
-    write_lines(SIM_VECTORS / "cases.txt", [c[0] for c in CASES])
+    # "<name> <rows> <cols>" per line: sim/Makefile builds one testbench binary
+    # per distinct geometry, since the DUT's port widths are fixed at elaboration
+    # and a single binary cannot cover several array sizes.
+    write_lines(SIM_VECTORS / "cases.txt",
+                [f"{c[0]} {c[6]} {c[7]}" for c in CASES])
 
     st = cases[SELFTEST_CASE]
     if args.check:

@@ -2,14 +2,15 @@
 # Simulation flow (Icarus Verilog).
 #
 #   make            build vectors and run every test
-#   make tile       top-level matmul tests, all cases x all backpressure modes
+#   make tile       top-level matmul tests, all cases x all backpressure modes,
+#                   across four array geometries including a non-square one
 #   make requant    output-stage arithmetic tests
 #   make skew       skew/deskew delay tests
 #   make selftest   simulate the design that goes on the FPGA
 #   make waves      run one case with VCD output and open GTKWave
 #   make clean
 #
-# Overridable: IVERILOG, VVP, PYTHON, CASE, BP
+# Overridable: IVERILOG, VVP, PYTHON, CASE, BP, GEOM
 # -----------------------------------------------------------------------------
 
 IVERILOG ?= iverilog
@@ -32,12 +33,26 @@ RTL_SRCS := $(RTL)/mac_pe.sv     $(RTL)/skew_buffer.sv $(RTL)/pe_array.sv \
 
 IVFLAGS := -g2012 -Wall -Wno-timescale -I$(FPGA)
 
-CASES := basic single multi sat stress
+# <case>:<rows>x<cols>. The DUT's port widths are fixed at elaboration, so each
+# distinct geometry needs its own compiled binary; the geometry suffix in the
+# .vvp name is what keeps them apart.
+#
+# The geometry here must agree with the `rows`/`cols` columns in
+# model/gen_vectors.py. It is not derived from vectors/cases.txt because that
+# file is generated, and Make needs the binary list before it exists on a clean
+# tree. A disagreement is not silent: the testbench checks N against COLS and
+# K against PASSES*ROWS on every run and fails loudly.
+TILE_RUNS := basic:8x8 single:8x8 multi:8x8 sat:8x8 stress:8x8 \
+             tiny:4x4 rect:4x8 wide:16x16
+TILE_GEOMS := $(sort $(foreach r,$(TILE_RUNS),$(word 2,$(subst :, ,$(r)))))
+TILE_BINS  := $(foreach g,$(TILE_GEOMS),$(WORK)/tile_$(g).vvp)
+
 BPS   := 0 1 2
 
-# Defaults for the `waves` target
+# Defaults for the `waves` target. GEOM must match CASE's geometry.
 CASE ?= multi
 BP   ?= 2
+GEOM ?= 8x8
 
 STAMP := vectors/cases.txt
 
@@ -79,17 +94,21 @@ $(WORK)/requant.vvp: $(RTL)/requant.sv $(TB)/tb_requant.sv timescale.v | $(WORK)
 	    $(RTL)/requant.sv $(TB)/tb_requant.sv
 
 # ------------------------------------------------------------------- tile ----
-tile: $(WORK)/tile.vvp $(STAMP)
-	@for c in $(CASES); do \
+tile: $(TILE_BINS) $(STAMP)
+	@for r in $(TILE_RUNS); do \
+	    c=$${r%%:*}; g=$${r##*:}; \
 	    for b in $(BPS); do \
-	        (cd $(WORK) && $(CHECK) $(VVP) tile.vvp +case=../vectors/$$c +bp=$$b) \
-	            || exit 1; \
+	        (cd $(WORK) && $(CHECK) $(VVP) tile_$$g.vvp \
+	            +case=../vectors/$$c +bp=$$b) || exit 1; \
 	    done; \
 	done
 
-$(WORK)/tile.vvp: $(RTL_SRCS) $(TB)/tb_systolic_tile.sv timescale.v | $(WORK)
-	$(IVERILOG) $(IVFLAGS) -o $@ -s tb_systolic_tile timescale.v \
-	    $(RTL_SRCS) $(TB)/tb_systolic_tile.sv
+# % is the geometry, e.g. "4x8" -> -DTB_ROWS=4 -DTB_COLS=8.
+$(WORK)/tile_%.vvp: $(RTL_SRCS) $(TB)/tb_systolic_tile.sv timescale.v | $(WORK)
+	$(IVERILOG) $(IVFLAGS) -o $@ -s tb_systolic_tile \
+	    -DTB_ROWS=$(word 1,$(subst x, ,$*)) \
+	    -DTB_COLS=$(word 2,$(subst x, ,$*)) \
+	    timescale.v $(RTL_SRCS) $(TB)/tb_systolic_tile.sv
 
 # --------------------------------------------------------------- selftest ----
 selftest: $(WORK)/selftest.vvp $(WORK)/.roms
@@ -101,8 +120,8 @@ $(WORK)/selftest.vvp: $(RTL_SRCS) $(FPGA)/tile_selftest.sv $(FPGA)/selftest_para
 	    $(RTL_SRCS) $(FPGA)/tile_selftest.sv $(TB)/tb_selftest.sv
 
 # ------------------------------------------------------------------ waves ----
-waves: $(WORK)/tile.vvp $(STAMP)
-	cd $(WORK) && $(VVP) tile.vvp +case=../vectors/$(CASE) +bp=$(BP) +vcd
+waves: $(WORK)/tile_$(GEOM).vvp $(STAMP)
+	cd $(WORK) && $(VVP) tile_$(GEOM).vvp +case=../vectors/$(CASE) +bp=$(BP) +vcd
 	$(GTKWAVE) $(WORK)/waves.vcd $(ROOT)/docs/waves.gtkw 2>/dev/null || \
 	    $(GTKWAVE) $(WORK)/waves.vcd
 

@@ -23,10 +23,25 @@
 `timescale 1ns / 1ps
 `default_nettype none
 
+// Array geometry is a compile-time define rather than a parameter override: the
+// DUT's port widths are fixed at elaboration, so covering several geometries
+// means one binary per geometry either way, and `-D` behaves identically across
+// every simulator in this flow while `-P`/`-g` override syntax does not.
+//
+// The values here are only defaults. sim/Makefile builds one binary per distinct
+// geometry in the case list and passes the matching -DTB_ROWS/-DTB_COLS; the
+// runtime checks below catch any binary run against a case it does not fit.
+`ifndef TB_ROWS
+  `define TB_ROWS 8
+`endif
+`ifndef TB_COLS
+  `define TB_COLS 8
+`endif
+
 module tb_systolic_tile;
 
-    localparam int ROWS  = 8;
-    localparam int COLS  = 8;
+    localparam int ROWS  = `TB_ROWS;
+    localparam int COLS  = `TB_COLS;
     localparam int ACC_W = 32;
     localparam int MAXB  = 8192;
 
@@ -246,7 +261,8 @@ module tb_systolic_tile;
         $readmemh($sformatf("%s/y.hex",    casedir), y_mem, 0, M - 1);
 
         $display("");
-        $display("=== tb_systolic_tile : %0s ===", casedir);
+        $display("=== tb_systolic_tile : %0s  [array %0dx%0d] ===",
+                 casedir, ROWS, COLS);
         $display("    M=%0d K=%0d N=%0d passes=%0d mult=%0d shift=%0d relu=%0d bp=%0d",
                  M, K, N, PASSES, MULT, SHIFT, RELU, bp_mode);
 

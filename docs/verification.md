@@ -35,21 +35,57 @@ Streams a full matmul case and checks every output beat. Also checks
 `y_last` lands on the final beat, that no result appears before the last pass,
 and that no extra beats arrive after the stream ends.
 
-Runs over 5 cases × 3 backpressure modes = **15 configurations**:
+Runs over 8 cases × 3 backpressure modes = **24 configurations**:
 
-| Case | M | K | Passes | ReLU | What it is for |
-|---|---|---|---|---|---|
-| `basic` | 4 | 8 | 1 | no | scale exactly ¼, small values, hand-checkable |
-| `single` | 1 | 8 | 1 | no | shortest legal stream — M=1 edge case |
-| `multi` | 16 | 32 | 4 | yes | K-tiling across 4 passes, plus ReLU |
-| `sat` | 8 | 8 | 1 | no | ~6× overscaled, so ~55% of outputs clamp |
-| `stress` | 64 | 64 | 8 | no | 8 passes, full INT8 range, longest run |
+| Case | Array | M | K | Passes | ReLU | What it is for |
+|---|---|---|---|---|---|---|
+| `basic` | 8×8 | 4 | 8 | 1 | no | scale exactly ¼, small values, hand-checkable |
+| `single` | 8×8 | 1 | 8 | 1 | no | shortest legal stream — M=1 edge case |
+| `multi` | 8×8 | 16 | 32 | 4 | yes | K-tiling across 4 passes, plus ReLU |
+| `sat` | 8×8 | 8 | 8 | 1 | no | ~6× overscaled, so ~55% of outputs clamp |
+| `stress` | 8×8 | 64 | 64 | 8 | no | 8 passes, full INT8 range, longest run |
+| `tiny` | 4×4 | 6 | 12 | 3 | yes | smaller array, K-tiling at a different `ROWS` |
+| `rect` | **4×8** | 8 | 16 | 4 | no | `ROWS ≠ COLS` — see below |
+| `wide` | 16×16 | 8 | 32 | 2 | no | larger array, wider beats |
 
 Backpressure modes: `bp=0` never stalls, `bp=1` accepts ~½ the time, `bp=2`
 ~¼ plus random bubbles on `a_valid`. Only the aggressive mode reliably fills the
 output FIFO — on `stress` it produces 146 stall cycles and 160 input bubbles,
 which is the array-wide freeze and the gap-tolerance of the skew buffer both
 being exercised for real.
+
+#### Why a non-square case
+
+The RTL is parameterised in `ROWS` and `COLS`, but a parameter that is only ever
+elaborated at one value is indistinguishable from a constant. Worse, every
+*square* geometry hides a specific bug class: interchanging `ROWS` and `COLS` —
+in the input skew depth, the output deskew depth, the drain length, a bus
+width — is a no-op whenever they are equal. Five 8×8 cases cannot see it.
+
+`rect` sets `ROWS=4, COLS=8` so each of those is a different number. Together
+with `tiny` and `wide` the measured pipeline depth then tracks `ROWS+COLS+5`
+across a 3× span:
+
+| Geometry | Measured | `ROWS+COLS+5` |
+|---|---|---|
+| 4×4 | 13 | 13 |
+| 4×8 | 17 | 17 |
+| 8×8 | 21 | 21 |
+| 16×16 | 37 | 37 |
+
+The asymmetric row is what makes the others meaningful: it is the only one where
+reading the wrong parameter produces a different number. All eight cases passed
+at every geometry on the first run, so this records a design that was already
+correct rather than a bug found — but that is a fact the repo could not state
+before and can now.
+
+Mechanically, the DUT's port widths are fixed at elaboration, so each geometry
+needs its own compiled binary; `sim/Makefile` builds one per distinct geometry
+and passes `-DTB_ROWS`/`-DTB_COLS`. A define rather than a parameter override
+because `-D` behaves the same in every simulator in this flow and the override
+syntax does not. If the Makefile's geometry ever disagrees with the generator's,
+the testbench's existing `N == COLS` and `K == PASSES*ROWS` checks fail the run
+rather than letting it pass against mismatched vectors.
 
 ### `tb_requant` — the output stage
 
@@ -171,8 +207,10 @@ without exercising anything".
 Stated plainly, because a verification story with no limitations section is not
 a verification story:
 
-- **Only 8×8 is tested.** The RTL is parameterised in `ROWS`/`COLS`, but
-  `gen_vectors.py` emits 8-wide weights, so other geometries are unverified.
+- **Only 8×8 is synthesised.** Four geometries are simulated (4×4, 4×8, 8×8,
+  16×16), but only the 8×8 build is put through Quartus and Vivado, so the
+  others have no timing or utilisation result and no board wrapper. A geometry
+  that simulates correctly can still fail to close timing.
 - **No formal verification.** There are no SVA properties and no proof of the
   handshake or the freeze invariant. A bounded model check of "stall never loses
   a beat" would be the highest-value addition here.

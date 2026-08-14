@@ -21,8 +21,9 @@ Every number this design produces is **bit-identical to `model/golden.py`** —
 including the awkward cases, like round-half-up on negative values and INT8
 saturation. That is checked three ways:
 
-1. **In simulation**, over 15 configurations covering K-tiling, ReLU, heavy
-   saturation, single-beat streams, and aggressive backpressure.
+1. **In simulation**, over 24 configurations covering K-tiling, ReLU, heavy
+   saturation, single-beat streams, aggressive backpressure, and four array
+   geometries including a non-square one.
 2. **In the arithmetic unit specifically**, over 320 vectors that each carry
    their own quantisation config.
 3. **On the FPGA itself** — the board runs the same vectors from ROM, compares
@@ -36,17 +37,35 @@ board can never end up self-testing against stale expectations.
 
 ## Results
 
-### Simulation — 18/18 pass
+### Simulation — 27/27 pass
 
 ```
 $ make sim
 === tb_skew_buffer : LANES=6 W=8 ===                      RESULT: PASS
 === tb_requant : 320 vectors ===                          RESULT: PASS
-=== tb_systolic_tile : basic|single|multi|sat|stress ===  RESULT: PASS  (×15)
+=== tb_systolic_tile : 8 cases × 3 backpressure modes ===  RESULT: PASS  (×24)
 === tb_selftest : M=16 passes=4 relu=1 ===                RESULT: PASS
 
   all simulations passed
 ```
+
+The tile runs at four array geometries, not just the 8×8 the boards build. The
+`ROWS`/`COLS` parameters either work or they don't, and a repo that only ever
+elaborates one size cannot tell you which:
+
+| Geometry | Case | Measured pipeline depth | `ROWS+COLS+5` |
+|---|---|---|---|
+| 4×4 | `tiny` | 13 | 13 |
+| 4×8 | `rect` | 17 | 17 |
+| 8×8 | `basic`…`stress` | 21 | 21 |
+| 16×16 | `wide` | 37 | 37 |
+
+`rect` is the one that earns its place. Every other case is square, and a square
+array hides a whole bug class — swapping `ROWS` for `COLS` in a skew depth, a
+drain length or a bus width is a *no-op* when they are equal. At 4×8 each of
+those is a different number, and the latency tracking `ROWS+COLS+5` across all
+four sizes is independent evidence that the skew and the deskew are each reading
+the parameter they should be.
 
 Representative run — the hardest case with aggressive backpressure:
 
@@ -261,9 +280,9 @@ rejects it, correctly. All input ports are therefore declared `input wire`.
 ## What is not covered
 
 Stated plainly — see [docs/verification.md](docs/verification.md#what-this-does-not-prove)
-for the full list. In short: only the 8×8 geometry is tested, there is no formal
-verification or SVA, no gate-level simulation, and nothing has run on physical
-hardware yet.
+for the full list. In short: there is no formal verification or SVA, no
+gate-level simulation, only the 8×8 build is synthesised for a board (the other
+geometries are simulated only), and nothing has run on physical hardware yet.
 
 ---
 
