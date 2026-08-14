@@ -64,6 +64,30 @@ module out_fifo #(
     assign rd_data  = mem[rptr];
     assign stall    = (count >= (DEPTH - 2));
 
+`ifdef FORMAL
+    // Proven at the tile top by scripts/formal.sh, never standalone: both
+    // properties below are statements about how systolic_tile drives wr_en, and
+    // both are false for an arbitrary environment that writes whenever it likes.
+    always_ff @(posedge clk) if (rst_n) begin
+        // F1 -- no beat is ever silently dropped.
+        //
+        // The (count < DEPTH) mask in do_wr is the one place in this design
+        // where a result can vanish with nothing to show for it: no counter
+        // moves, no flag is raised, the FIFO simply does not take the beat.
+        // Proving the mask is dead code is proving the whole backpressure
+        // scheme. It is also exactly the caller contract in the header above --
+        // drop the `&& en` at the instantiation and this assertion fires.
+        assert (!(wr_en && count == DEPTH));
+
+        // F2 -- wptr, rptr and count are three registers advanced by two
+        // independent conditions. If they ever disagree the FIFO hands back the
+        // wrong entry while still counting correctly, so every beat arrives, in
+        // order, carrying the wrong data. Nothing that counts beats sees it.
+        assert (count <= DEPTH);
+        assert ((wptr - rptr) == count[AW-1:0]);
+    end
+`endif
+
 endmodule
 
 `default_nettype wire

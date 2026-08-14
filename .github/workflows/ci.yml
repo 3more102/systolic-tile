@@ -62,3 +62,24 @@ jobs:
           name: yosys-cell-stats
           path: syn/yosys/stat_*.txt
           if-no-files-found: ignore
+
+  formal:
+    name: bounded model check (Yosys sat)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Same package as the lint job. `sat` is built into yosys, so proving
+      # these properties needs no SMT solver, no SymbiYosys and no license.
+      - name: Install Yosys
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends yosys
+          yosys -V
+
+      # Simulation covers the stimulus somebody thought to write. This covers
+      # every input sequence within the bound. --self-test then re-runs the
+      # proof against a deliberately broken copy and fails if it still passes,
+      # so the job cannot go green while checking nothing.
+      - name: Backpressure holds, and the proof can still fail
+        run: make formal

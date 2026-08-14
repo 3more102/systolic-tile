@@ -1,0 +1,35 @@
+# -----------------------------------------------------------------------------
+# Lowering shared by every query in scripts/formal.sh.
+#
+# The caller has already read the design and run `hierarchy` with the geometry
+# it wants to check, so this file must not do either -- it would undo the
+# -chparam overrides the caller just applied.
+#
+# Every line here is the fix for a specific way the first attempt failed. They
+# are recorded rather than folded away because none of them is guessable from
+# the yosys command reference alone.
+# -----------------------------------------------------------------------------
+
+# `sat` solves one module. Without flattening, the properties that live inside
+# out_fifo and tile_ctrl are simply not part of the problem, and the proof comes
+# back green having checked two of the seven.
+prep -top systolic_tile -flatten
+
+# `sat` has no memory model. The accumulator bank and the FIFO storage have to
+# become ordinary registers before the solver can see through them -- which is
+# why MAX_M, not ROWS or COLS, is the parameter that decides whether this
+# terminates in seconds or never.
+memory_map
+
+# The design resets asynchronously. `sat` reasons about synchronous state only,
+# and refuses to lower an edge-triggered assertion until the reset is
+# synchronous: "Cannot lower edge triggered $check cell, run async2sync or
+# clk2fflogic first."
+async2sync
+
+# Yosys 0.52 keeps SystemVerilog assertions as $check cells, which the SAT
+# solver cannot import ("Failed to import cell ... (type $check) to SAT
+# database"). This turns them back into the $assert cells -prove-asserts reads.
+chformal -lower
+
+opt -full

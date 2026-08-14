@@ -270,6 +270,35 @@ module systolic_tile #(
         .rd_ready (y_ready)
     );
 
+`ifdef FORMAL
+    // Proven by scripts/formal.sh. f_past suppresses the first evaluation,
+    // where $past() has no predecessor to refer to.
+    logic f_past = 1'b0;
+    always_ff @(posedge clk) f_past <= 1'b1;
+
+    always_ff @(posedge clk) if (f_past && rst_n && $past(rst_n)) begin
+        // T1 -- a consumer may hold y_ready low for as long as it likes and the
+        // offered beat stays put, unchanged.
+        //
+        // This is not a FIFO-local property. y_data is mem[rptr]; rptr holds
+        // still during the stall, but the entry underneath it is safe from
+        // being overwritten only because the FIFO can never wrap onto it --
+        // which is F1. A design that overfilled the FIFO would fail here, as
+        // silent data corruption rather than as a lost beat.
+        if ($past(y_valid) && !$past(y_ready)) begin
+            assert (y_valid);
+            assert (y_data == $past(y_data));
+            assert (y_last == $past(y_last));
+        end
+
+        // T2 -- the release counter belongs to the frozen region. If it ran
+        // during a stall, y_last would mark the wrong beat and the consumer
+        // would cut the stream in the wrong place -- with every beat present
+        // and every value correct.
+        if (!$past(en)) assert (ycnt == $past(ycnt));
+    end
+`endif
+
 endmodule
 
 `default_nettype wire

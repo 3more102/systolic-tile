@@ -175,6 +175,116 @@ but the two lists matching is the point of the sweep.
 
 ---
 
+## The formal gate
+
+Simulation covers the stimulus somebody thought to write. `make formal` proves
+five properties — eight assertions — over **every** input sequence of 32 cycles
+from reset, using the SAT solver built into yosys: no SymbiYosys, no SMT solver,
+no license, the same `yosys` package the lint job already installs.
+
+The properties are guarded by `` `ifdef FORMAL `` and each one lives in the module
+it is about, so the RTL the vendor tools read is byte-for-byte unchanged.
+
+| | Where | Property | The bug it excludes |
+|---|---|---|---|
+| **F1** | `out_fifo` | `!(wr_en && count == DEPTH)` | a result beat silently dropped |
+| **F2** | `out_fifo` | `count <= DEPTH` and `wptr - rptr == count` | pointer/count desync — every beat arrives, in order, carrying the wrong data |
+| **T1** | `systolic_tile` | while `y_ready` is low, `y_valid` holds and `y_data`/`y_last` do not move | a stalled consumer losing or corrupting the beat it was offered |
+| **T2** | `systolic_tile` | `ycnt` cannot advance while `en` is low | `y_last` marking the wrong beat, cutting the stream in the wrong place |
+| **C1** | `tile_ctrl` | no handshake, commit or clear output asserts while `en` is low | the sequencer running ahead of the frozen datapath |
+
+### Why F1 is the one that matters
+
+`do_wr = wr_en && (count < DEPTH)`. That mask is the only place in the design
+where a result can disappear with nothing to show for it — no counter moves, no
+flag is raised, the FIFO simply does not take the beat. Proving the mask is dead
+code is proving the backpressure scheme.
+
+T1 then rests on F1. `y_data` is `mem[rptr]`; during a stall `rptr` holds still,
+but the entry underneath it is safe from being overwritten only because the write
+pointer can never wrap onto it. A design that overfilled the FIFO fails T1 as
+silent data corruption before anyone notices a beat has gone missing.
+
+### Writing the freeze property exactly is what found the exception
+
+The obvious statement of "everything freezes together" is that no register
+advances while `en` is low. That is **false** here, and the counterexample is one
+line of `tile_ctrl`: `S_IDLE → S_LOADW` on `start` is the single transition not
+qualified with `en`. It is safe — every output the FSM drives is `&& en`, so a
+stalled tile that accepts a `start` still cannot do anything with it — but it is
+an exception, and it was a comment before it was a checked property. C1 asserts
+what is actually true: not that the state is frozen, but that nothing observable
+happens while the datapath is.
+
+### A bounded proof that never reaches the interesting state is green and worthless
+
+This is the same problem as a test that passes without exercising anything, and
+`tb_systolic_tile` already prints counters for it. The formal flow does the
+equivalent: before proving anything, `scripts/formal.sh` runs three **cover**
+queries — asking the solver to *find* a trace, and failing when it cannot.
+
+```
+$ make formal
+  formal: 2x2, MAX_M=4, FIFO_DEPTH=8, 32 steps from reset
+  cover  a result beat is produced
+  cover  backpressure engages
+  cover  the FIFO reaches its stall threshold
+  proof  8 assertions hold over every input sequence of 32 steps
+  self-test  an unqualified FIFO write is caught
+```
+
+All three are reachable by step 24, measured rather than assumed, so 32 leaves
+the pipeline room to grow a few cycles slower before the covers start failing.
+If a future change pushes it past the bound, CI reports that the bound is now too
+short instead of quietly proving nothing.
+
+The `8` on the proof line is not typed by hand either — the script asserts the
+count with `select -assert-count 8 t:$assert` before it starts solving, so a
+property added without updating the summary, or an `` `ifdef FORMAL `` block that
+stopped elaborating, fails the run rather than producing a green line that
+overstates what was checked. The whole flow takes about five minutes and peaks
+around 1.5 GB, essentially all of it in the two proofs.
+
+### The proof can still fail
+
+`--self-test` re-runs the whole proof against a copy of the RTL with one
+mutation: the `&& en` dropped from the FIFO write enable. That is the single
+documented hazard of this design — a frozen requant stage holds its valid high,
+so an unqualified write pushes the same beat in on every stalled cycle until the
+FIFO fills and the next one is discarded. F1 must catch it, and the script fails
+if the proof comes back green.
+
+That check is not decoration, because a bound chosen by eye is very easy to get
+wrong in the direction that looks like success. The mutation needs the FIFO to
+fill past its threshold and then take one more write attempt, which does not
+happen until well into the run; a proof that stops before then reports the broken
+design as correct, in the same words and the same green, as a proof that stops
+after.
+
+### What the bound and the geometry cost
+
+The proof runs at ROWS=COLS=2 with a 4-entry accumulator, which is the smallest
+instance that still contains every mechanism the properties talk about: an input
+skew, a deskew, a K-tiling accumulator, a requant stage, and the FIFO whose
+occupancy drives the global enable. `FIFO_DEPTH` stays at the shipped 8, because
+F1 is a statement about the arithmetic relating the stall threshold to the depth
+and that is the number the boards are built with.
+
+What that leaves uncovered, plainly:
+
+- **It is bounded.** Nothing is proved about cycle 33 onward. A bug that needs a
+  longer run to express — an accumulator address wrapping after `MAX_M` beats,
+  say — is outside it.
+- **It is one geometry.** The control structure does not vary with `ROWS`/`COLS`,
+  and `make lint` now elaborates all four sizes, but this proof was run at 2×2.
+- **`MAX_M` is 4, not 256.** `memory_map` turns the accumulator into flip-flops
+  for the solver, so the shipped depth would not terminate.
+- **Datapath values are untouched.** Nothing here says a single product is
+  correct. That is what `model/golden.py` and 27 simulations are for. These five
+  properties are about the handshake, and only the handshake.
+
+---
+
 ## The pin gate
 
 `make check-pins` diffs every pin assignment in both boards' constraint files
@@ -244,9 +354,11 @@ a verification story:
   one than closing timing on a part; 16×16 in particular has four times the
   multipliers of a design that already consumes the 7010's entire DSP budget,
   and would not fit that device at all.
-- **No formal verification.** There are no SVA properties and no proof of the
-  handshake or the freeze invariant. A bounded model check of "stall never loses
-  a beat" would be the highest-value addition here.
+- **Formal is bounded and narrow.** Five properties covering the handshake and
+  the freeze are proved over every input sequence of 32 cycles at 2×2, and that
+  is the whole of it. Nothing is unbounded, nothing covers the datapath, and
+  nothing there says the tile computes the right numbers — that rests entirely
+  on simulation against the model.
 - **No gate-level simulation.** Post-synthesis and post-route netlists are not
   simulated, so nothing here would catch a synthesis-tool bug or an
   X-propagation difference at reset.

@@ -5,6 +5,7 @@
 #   make            regenerate vectors, run every simulation, run the lint gate
 #   make sim        simulations only
 #   make lint       Yosys structural / latch / driver check, every geometry
+#   make formal     bounded model check of the backpressure scheme
 #   make vectors    regenerate simulation vectors and FPGA ROMs
 #   make check-roms verify the committed FPGA ROMs still match the model
 #   make check-pins verify both boards' pins against their board references
@@ -18,8 +19,11 @@ YOSYS      ?= yosys
 QUARTUS_SH ?= quartus_sh
 VIVADO     ?= vivado
 
-.PHONY: all sim lint vectors check-roms check-pins quartus vivado bitstreams clean
+.PHONY: all sim lint formal vectors check-roms check-pins quartus vivado bitstreams clean
 
+# `formal` is deliberately not in `all`: it is minutes of SAT solving against
+# seconds for everything else, and it has its own CI job. Run it before touching
+# anything that stalls, freezes or writes the output FIFO.
 all: sim lint check-pins
 
 sim:
@@ -27,6 +31,9 @@ sim:
 
 lint:
 	./scripts/lint.sh
+
+formal:
+	./scripts/formal.sh --self-test
 
 vectors:
 	$(PYTHON) model/gen_vectors.py

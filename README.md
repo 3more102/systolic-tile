@@ -98,6 +98,44 @@ Representative run — the hardest case with aggressive backpressure:
     RESULT: PASS
 ```
 
+### Formal — 5 properties over every input sequence within 32 cycles
+
+Simulation drives the stimulus somebody thought to write. `make formal` proves
+the backpressure scheme over *all* of them within a bound, using the SAT solver
+built into Yosys — no SymbiYosys, no SMT solver, no license, the same package the
+lint job already installs:
+
+```
+$ make formal
+  formal: 2x2, MAX_M=4, FIFO_DEPTH=8, 32 steps from reset
+  cover  a result beat is produced
+  cover  backpressure engages
+  cover  the FIFO reaches its stall threshold
+  proof  8 assertions hold over every input sequence of 32 steps
+  self-test  an unqualified FIFO write is caught
+```
+
+The property that matters is **F1**. `out_fifo` masks its write with
+`count < DEPTH`, and that mask is the only place in the design where a result can
+disappear with nothing to show for it — no counter moves, no flag is raised, the
+FIFO simply does not take the beat. Proving the mask is dead code is proving the
+backpressure scheme.
+
+Four of those five lines are not the proof, and they are the reason to trust it.
+The **covers** ask the solver to *find* a trace that fills the FIFO, because a
+bounded proof over a design that never reaches the interesting state is green and
+worthless. The **self-test** re-runs the whole proof against a copy with the
+`&& en` dropped from the FIFO write — the one documented hazard of this design —
+and fails if it still passes.
+
+That guard is not decoration. The violating state is only reachable deep into the
+run, so a bound chosen by eye rather than measured would pass the broken design
+and look exactly like a correct one.
+
+Writing the freeze property exactly also turned up an exception worth knowing
+about. Full write-up in
+[docs/verification.md](docs/verification.md#the-formal-gate).
+
 ### Hardware
 
 Both boards build and both close timing.
@@ -167,6 +205,7 @@ structural check. Other targets:
 ```bash
 make sim         # simulations only
 make lint        # structural check, re-run at all four array geometries
+make formal      # bounded model check of the backpressure scheme
 make waves       # run a case with VCD output and open GTKWave
 make check-roms  # verify committed FPGA ROMs still match the model
 make check-pins  # verify both boards' pins against their board references
@@ -274,6 +313,7 @@ rtl/fpga/          self-test, board wrappers, generated ROMs
 model/             golden.py (the specification), gen_vectors.py
 tb/                4 self-checking testbenches
 sim/               Makefile + generated vectors
+fv/                lowering recipe for the bounded model check
 syn/yosys/         structural check that runs in CI, at every geometry
 syn/quartus/       DE10-Standard build (build_de10.tcl, .sdc, pin reference)
 syn/vivado/        Zybo Z7-10 build (build_zybo.tcl, .xdc, pin reference)
@@ -299,10 +339,11 @@ rejects it, correctly. All input ports are therefore declared `input wire`.
 ## What is not covered
 
 Stated plainly — see [docs/verification.md](docs/verification.md#what-this-does-not-prove)
-for the full list. In short: there is no formal verification or SVA, no
-gate-level simulation, only the 8×8 build is put through a vendor tool (the
-other geometries are simulated and structurally checked, so they have no timing
-or utilisation result), and nothing has run on physical hardware yet.
+for the full list. In short: the formal proof is bounded at 32 cycles and one
+geometry and says nothing about the datapath, there is no gate-level simulation,
+only the 8×8 build is put through a vendor tool (the other geometries are
+simulated and structurally checked, so they have no timing or utilisation
+result), and nothing has run on physical hardware yet.
 
 ---
 

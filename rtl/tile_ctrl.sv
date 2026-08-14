@@ -138,6 +138,17 @@ module tile_ctrl #(
     assign a_beat   = (state == S_COMPUTE) && en && a_valid;
     assign busy     = (state != S_IDLE);
 
+`ifdef FORMAL
+    // C1 -- nothing observable happens while the datapath is frozen.
+    //
+    // The FSM state is deliberately *not* asserted stable. S_IDLE -> S_LOADW on
+    // `start` is the one transition not qualified with `en`, and it is safe
+    // precisely because every output below is. Writing the freeze property
+    // exactly is what makes that exception explicit rather than a comment.
+    always_ff @(posedge clk) if (rst_n && !en)
+        assert (!(w_ready || w_shift || w_commit || acc_clr || a_ready || a_beat));
+`endif
+
 endmodule
 
 `default_nettype wire
