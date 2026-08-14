@@ -125,6 +125,7 @@ make sim         # simulations only
 make lint        # latch / undriven-net / hierarchy check
 make waves       # run a case with VCD output and open GTKWave
 make check-roms  # verify committed FPGA ROMs still match the model
+make check-pins  # verify DE10-Standard pins against the board reference
 make quartus     # DE10-Standard bitstream
 make vivado      # Zybo Z7-10 bitstream
 ```
@@ -202,6 +203,15 @@ ROM, compares every result against the golden values, and reports one bit.
 The self-test starts itself ~1 ms after configuration, so a freshly programmed
 board shows a verdict with no interaction. Both status LEDs dark means it is
 still running.
+
+**Pin assignments are checked, not trusted.** A wrong pin is the worst class of
+FPGA bug — it compiles, closes timing, programs, and then the board simply does
+nothing, with no error to chase. So `syn/quartus/de10_standard_pins.ref` holds
+the board's pin table (transcribed from Terasic's golden top, cross-checked
+against two independent published `.qsf` files and the User Manual), and
+`make check-pins` diffs every assignment against it in CI. It also catches two
+signals landing on the same physical pin, which survives a per-signal review and
+still cannot be routed.
 
 ---
 

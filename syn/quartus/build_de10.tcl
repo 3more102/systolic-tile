@@ -7,11 +7,15 @@
 #
 # PIN ASSIGNMENTS
 # ---------------
-# These follow the DE10-Standard User Manual. CLOCK_50, KEY[0] and LEDR[2:0]
-# were cross-checked against a known-good project built for this board; the
-# remainder come from the same pin table but have not been verified on hardware.
-# Diff against Terasic's DE10_Standard_golden_top.qsf before programming a board
-# you care about.
+# Every assignment below is checked against syn/quartus/de10_standard_pins.ref,
+# which is transcribed from Terasic's golden top and cross-checked against
+# independent published .qsf files and the User Manual pin tables.
+#
+# Run the check with:  make check-pins
+#
+# It also catches two signals landing on the same physical pin, which passes a
+# per-signal review and still cannot be routed. A wrong pin is the worst kind of
+# FPGA bug -- everything compiles, timing closes, and the board just sits there.
 # -----------------------------------------------------------------------------
 
 package require ::quartus::project

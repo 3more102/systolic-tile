@@ -109,6 +109,30 @@ into flip-flops:
 
 ---
 
+## The pin gate
+
+`make check-pins` diffs every `set_location_assignment` in
+`syn/quartus/build_de10.tcl` against `syn/quartus/de10_standard_pins.ref`, a
+67-pin board reference transcribed from Terasic's golden top and cross-checked
+against two independent published `.qsf` files and the DE10-Standard User Manual
+pin tables.
+
+This exists because a wrong pin assignment is uniquely nasty: it synthesises,
+fits, closes timing, generates a bitstream and programs successfully, and then
+the board does nothing. There is no error message, no failing test, and nothing
+to single-step — the first symptom is a dark LED on a desk. It is exactly the
+kind of thing that should be a checked artifact rather than something reviewed
+by eye once.
+
+The check also flags two signals assigned to the same physical pin, which passes
+per-signal inspection and still cannot be routed.
+
+Current state: 22 assignments, all matching. The checker is verified against a
+deliberately corrupted pin to confirm it actually fails rather than passing
+vacuously.
+
+---
+
 ## Sampling discipline
 
 Stimulus is driven on `negedge`, handshakes are sampled on `negedge` (every

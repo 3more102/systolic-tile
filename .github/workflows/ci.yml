@@ -27,6 +27,12 @@ jobs:
       - name: Committed FPGA ROMs match the model
         run: make check-roms
 
+      # A wrong pin assignment compiles, closes timing, programs, and then does
+      # nothing at all. Diffed against a board reference so it fails loudly here
+      # instead of silently on a desk.
+      - name: DE10-Standard pins match the board reference
+        run: make check-pins
+
       - name: Run all simulations
         run: make sim
 
