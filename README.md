@@ -108,6 +108,7 @@ lint job already installs:
 ```
 $ make formal
   formal: 2x2, MAX_M=4, FIFO_DEPTH=8, 32 steps from reset
+  using: Yosys 0.52 (git sha1 fee39a3284c90249e1d9684cf6944ffbbcbb8f90)
   cover  a result beat is produced
   cover  backpressure engages
   cover  the FIFO reaches its stall threshold

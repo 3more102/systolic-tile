@@ -27,9 +27,15 @@ memory_map
 # clk2fflogic first."
 async2sync
 
-# Yosys 0.52 keeps SystemVerilog assertions as $check cells, which the SAT
-# solver cannot import ("Failed to import cell ... (type $check) to SAT
-# database"). This turns them back into the $assert cells -prove-asserts reads.
-chformal -lower
-
-opt -full
+# Two commands are deliberately missing from the end of this file, and
+# scripts/formal.sh appends them instead:
+#
+#   chformal -lower   Yosys 0.39 and later keep SystemVerilog assertions as
+#                     $check cells, which the SAT solver cannot import ("Failed
+#                     to import cell ... (type $check) to SAT database"). This
+#                     turns them back into the $assert cells -prove-asserts
+#                     reads. Older builds -- including the yosys in Ubuntu
+#                     24.04 -- emit $assert directly and reject the option, so
+#                     the driver asks `help chformal` and only adds it if the
+#                     tool understands it.
+#   opt -full         has to follow the lowering, not precede it.

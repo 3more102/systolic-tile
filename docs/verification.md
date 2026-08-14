@@ -182,6 +182,12 @@ five properties — eight assertions — over **every** input sequence of 32 cyc
 from reset, using the SAT solver built into yosys: no SymbiYosys, no SMT solver,
 no license, the same `yosys` package the lint job already installs.
 
+It is not pinned to one yosys either. Version 0.39 changed how assertions are
+represented internally and added the `chformal -lower` needed to undo it; older
+builds, including the one in Ubuntu 24.04, reject that option. The driver asks
+`help chformal` what it is dealing with rather than assuming, and prints the
+version it used.
+
 The properties are guarded by `` `ifdef FORMAL `` and each one lives in the module
 it is about, so the RTL the vendor tools read is byte-for-byte unchanged.
 
@@ -226,6 +232,7 @@ queries — asking the solver to *find* a trace, and failing when it cannot.
 ```
 $ make formal
   formal: 2x2, MAX_M=4, FIFO_DEPTH=8, 32 steps from reset
+  using: Yosys 0.52 (git sha1 fee39a3284c90249e1d9684cf6944ffbbcbb8f90)
   cover  a result beat is produced
   cover  backpressure engages
   cover  the FIFO reaches its stall threshold

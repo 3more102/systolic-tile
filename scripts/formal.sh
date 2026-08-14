@@ -60,7 +60,23 @@ THRESH=$((FIFO_DEPTH - 2))
 
 MODULES="mac_pe skew_buffer pe_array accum_bank requant out_fifo tile_ctrl systolic_tile"
 
-# One yosys run over $1, ending in the sat command $2. Returns yosys's status.
+# Yosys 0.39 started representing assertions as $check cells and added
+# `chformal -lower` to turn them back into the $assert cells `sat` can import.
+# Older builds -- including the yosys in Ubuntu 24.04, which is what CI installs
+# -- emit $assert directly and reject the option outright. Ask the tool which one
+# it is instead of assuming, so this runs on both.
+if "$YOSYS" -p 'help chformal' 2>/dev/null | grep -q -- '-lower'; then
+    LOWER="chformal -lower;"
+else
+    LOWER=""
+fi
+
+LOG=$(mktemp)
+mut=""
+trap 'rm -rf "$LOG" ${mut:+"$mut"}' EXIT
+
+# One yosys run over $1, ending in the sat command $2. Returns yosys's status and
+# leaves the transcript in $LOG.
 #
 # Everything goes in a single -p string and the shared lowering is pulled in with
 # yosys's own `script` command: yosys runs every -s file before any -p command
@@ -76,7 +92,24 @@ fv_run () {
             -chparam ROWS $ROWS -chparam COLS $COLS \
             -chparam MAX_M $MAX_M -chparam FIFO_DEPTH $FIFO_DEPTH;
         script fv/prep.ys;
-        $sat_cmd" >/dev/null 2>&1
+        $LOWER
+        opt -full;
+        $sat_cmd" >"$LOG" 2>&1
+}
+
+# Anything that fails for a reason this script did not anticipate is a tool or
+# environment problem, and the one thing that makes it diagnosable from a CI
+# page is yosys's own last words. Printing "PROOF FAILED" and nothing else is
+# how a green-or-red gate becomes a guessing game.
+die () {
+    echo "$1"
+    echo "  --- last 20 lines from yosys ---"
+    # The skew buffers and the FIFO each produce a "Replacing memory ... with
+    # list of registers" warning per lane on every run. They are expected -- that
+    # is what memory_map is for -- and there are enough of them to push the
+    # actual error off the end of a 20-line tail.
+    grep -v '^Warning: Replacing memory' "$LOG" | tail -20 | sed 's/^/  /'
+    exit 1
 }
 
 # A cover: -verify makes yosys fail when the solver finds no model, so success
@@ -85,9 +118,8 @@ cover () {
     if fv_run rtl "sat -seq $DEPTH -set-at 1 rst_n 0 -set-at $DEPTH $1 $2 -verify"; then
         echo "  cover  $3"
     else
-        echo "  COVER FAILED: $3 is unreachable within $DEPTH steps."
-        echo "  The proof would still pass, and would prove nothing. Raise FV_DEPTH."
-        exit 1
+        die "  COVER FAILED: $3 is unreachable within $DEPTH steps.
+  The proof would still pass, and would prove nothing. Raise FV_DEPTH."
     fi
 }
 
@@ -100,11 +132,15 @@ PROOF="sat -prove-asserts -verify -seq $DEPTH -set-at 1 rst_n 0"
 NASSERTS=${FV_ASSERTS:-8}
 
 echo "  formal: ${ROWS}x${COLS}, MAX_M=$MAX_M, FIFO_DEPTH=$FIFO_DEPTH, $DEPTH steps from reset"
+echo "  using: $("$YOSYS" -V 2>/dev/null | head -1)"
 
+# Runs first because it is the cheapest thing here and it fails for every reason
+# the later steps would fail for -- a tool that cannot read the design, a
+# lowering that does not apply, a property that stopped elaborating -- but in
+# seconds instead of minutes.
 if ! fv_run rtl "select -assert-count $NASSERTS t:\$assert"; then
-    echo "  ASSERTION COUNT CHANGED: the design does not lower to $NASSERTS assertions."
-    echo "  Set FV_ASSERTS, or fix the \`ifdef FORMAL block that stopped elaborating."
-    exit 1
+    die "  ASSERTION COUNT CHANGED: the design does not lower to $NASSERTS assertions.
+  Set FV_ASSERTS, or fix the \`ifdef FORMAL block that stopped elaborating."
 fi
 
 cover rq_valid       1        "a result beat is produced"
@@ -114,8 +150,7 @@ cover u_fifo.count   $THRESH  "the FIFO reaches its stall threshold"
 if fv_run rtl "$PROOF"; then
     echo "  proof  $NASSERTS assertions hold over every input sequence of $DEPTH steps"
 else
-    echo "  PROOF FAILED"
-    exit 1
+    die "  PROOF FAILED"
 fi
 
 # ---------------------------------------------------------------------------
@@ -129,7 +164,6 @@ fi
 # ---------------------------------------------------------------------------
 if [ "${1:-}" = "--self-test" ]; then
     mut=$(mktemp -d)
-    trap 'rm -rf "$mut"' EXIT
     cp rtl/*.sv "$mut/"
     sed -i 's/\.wr_en    (rq_valid && en)/.wr_en    (rq_valid)/' "$mut/systolic_tile.sv"
     grep -q '\.wr_en    (rq_valid)' "$mut/systolic_tile.sv" || {
