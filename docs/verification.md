@@ -128,20 +128,50 @@ between "the tile is broken" and "the self-test is broken".
 - inferred latches (`$dlatch`, `$dlatchsr`, `$sr`)
 - undriven or multiply-driven nets, and combinational loops (`check -assert`)
 - a hierarchy that does not elaborate (`hierarchy -check`)
+- an array that elaborated to the wrong number of PEs
+  (`select -assert-count $((ROWS*COLS)) */t:*mac_pe*`)
 
 These are the failures that simulate perfectly and then bite in the vendor tool.
 It runs in a couple of seconds on every push.
+
+### Run once per geometry
+
+`scripts/lint.sh` sweeps all four array sizes, re-elaborating from scratch each
+time with `hierarchy -chparam ROWS n -chparam COLS m`. The reason is the same one
+that motivates the multi-geometry simulation, applied to a different property:
+only 8×8 is elaborated by Quartus and Vivado, so only 8×8 was ever *proven to
+build*. The simulation suite proves the other geometries behave; it cannot see a
+latch, and a latch inferred only at 4×8 would have sat there undetected.
 
 Cell counts after coarse mapping — the numbers are meaningful because
 `memory -nomap` keeps the accumulator as a `$mem` rather than flattening 64 kbit
 into flip-flops:
 
-| Cell | Count |
-|---|---|
-| `$mul` | 72 (64 PE + 8 requant) |
-| `$add` | 94 |
-| `$mem_v2` | 1 (accumulator) |
-| registers | ~478 multi-bit cells |
+| Geometry | `$mul` | `$add` | `$mem_v2` | Total cells |
+|---|---|---|---|---|
+| 4×4 | 20 | 34 | 1 | 363 |
+| 4×8 | 40 | 62 | 1 | 615 |
+| 8×8 | **72** | 94 | 1 | 925 |
+| 16×16 | 272 | 310 | 1 | 3,057 |
+
+`$mul` is `ROWS·COLS + COLS` at every size — one per PE, plus one per output
+column in `requant` — and the single `$mem_v2` is the accumulator, which stays
+one memory regardless of how large the array gets. Neither of those is asserted;
+they are just the shape the numbers take when the parameters are wired through
+correctly, and a table that only ever had one row could not show it.
+
+The PE-count assertion *is* checked, and it is the part that makes the sweep more
+than a smoke test. A generate loop that bounds both dimensions with `ROWS` — an
+easy thing to write and an invisible thing to review — builds a 4×4 array when
+4×8 was requested. Simulation would catch that at 4×8 too, via the testbench's
+`N == COLS` check; the assertion catches it in the job that has no Python, no
+generated vectors and no simulator, four seconds after the push.
+
+The geometry list in `scripts/lint.sh` is a second copy of the one in
+`model/gen_vectors.py`, deliberately: the lint job installs Yosys and nothing
+else, so it cannot read the generator. A disagreement between the two is not
+dangerous — it means some geometry is linted but not simulated, or the reverse —
+but the two lists matching is the point of the sweep.
 
 ---
 
@@ -207,10 +237,13 @@ without exercising anything".
 Stated plainly, because a verification story with no limitations section is not
 a verification story:
 
-- **Only 8×8 is synthesised.** Four geometries are simulated (4×4, 4×8, 8×8,
-  16×16), but only the 8×8 build is put through Quartus and Vivado, so the
-  others have no timing or utilisation result and no board wrapper. A geometry
-  that simulates correctly can still fail to close timing.
+- **Only 8×8 reaches a vendor tool.** All four geometries (4×4, 4×8, 8×8, 16×16)
+  are simulated and structurally checked, but only 8×8 is put through Quartus
+  and Vivado, so the others have no timing or utilisation result and no board
+  wrapper. Elaborating cleanly under Yosys is a real property and a much weaker
+  one than closing timing on a part; 16×16 in particular has four times the
+  multipliers of a design that already consumes the 7010's entire DSP budget,
+  and would not fit that device at all.
 - **No formal verification.** There are no SVA properties and no proof of the
   handshake or the freeze invariant. A bounded model check of "stall never loses
   a beat" would be the highest-value addition here.

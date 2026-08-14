@@ -4,7 +4,7 @@
 #
 #   make            regenerate vectors, run every simulation, run the lint gate
 #   make sim        simulations only
-#   make lint       Yosys structural / latch / driver check
+#   make lint       Yosys structural / latch / driver check, every geometry
 #   make vectors    regenerate simulation vectors and FPGA ROMs
 #   make check-roms verify the committed FPGA ROMs still match the model
 #   make check-pins verify both boards' pins against their board references
@@ -26,8 +26,7 @@ sim:
 	$(MAKE) -C sim all
 
 lint:
-	$(YOSYS) -q syn/yosys/synth_check.ys
-	@echo "  yosys: no latches, no undriven or multiply-driven nets"
+	./scripts/lint.sh
 
 vectors:
 	$(PYTHON) model/gen_vectors.py
@@ -51,7 +50,7 @@ bitstreams:
 
 clean:
 	$(MAKE) -C sim clean
-	rm -f syn/yosys/stat.txt
+	rm -f syn/yosys/stat*.txt
 	rm -rf syn/quartus/db syn/quartus/incremental_db syn/quartus/output_files \
 	       syn/quartus/*.qpf syn/quartus/*.qsf syn/quartus/*.qws syn/quartus/*.rpt \
 	       syn/quartus/*.summary syn/quartus/*.sof syn/quartus/*.pin syn/quartus/*.jdi

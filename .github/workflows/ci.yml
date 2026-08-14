@@ -50,13 +50,15 @@ jobs:
 
       # Catches the failures that simulate cleanly and then bite in the vendor
       # tool: inferred latches, undriven and multiply-driven nets, hierarchy
-      # that does not elaborate.
-      - name: No latches, no undriven or multiply-driven nets
+      # that does not elaborate. Run once per array geometry, because only 8x8
+      # is elaborated by the vendor builds -- a latch inferred only at 4x8 would
+      # otherwise go unnoticed.
+      - name: Elaborates cleanly at every geometry
         run: make lint
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: yosys-cell-stats
-          path: syn/yosys/stat.txt
+          path: syn/yosys/stat_*.txt
           if-no-files-found: ignore

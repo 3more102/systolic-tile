@@ -67,6 +67,25 @@ those is a different number, and the latency tracking `ROWS+COLS+5` across all
 four sizes is independent evidence that the skew and the deskew are each reading
 the parameter they should be.
 
+All four are **structurally checked** too, not only simulated. Simulation shows
+the other geometries *behave*; it says nothing about whether they *build*. So
+`make lint` re-elaborates the design at each size and asserts the
+multiply-accumulate count:
+
+```
+$ make lint
+  yosys 8x8:   64 PEs, no latches, no undriven or multiply-driven nets
+  yosys 4x4:   16 PEs, no latches, no undriven or multiply-driven nets
+  yosys 4x8:   32 PEs, no latches, no undriven or multiply-driven nets
+  yosys 16x16: 256 PEs, no latches, no undriven or multiply-driven nets
+```
+
+A latch inferred only at 4×8, or a net left undriven only at 16×16, now fails CI
+instead of waiting for someone to try that size. The PE assertion is what makes
+it more than a smoke test: a generate loop that bounds both dimensions with
+`ROWS` builds a 4×4 array when a 4×8 was asked for, and 16 PEs where 32 were
+expected is a hard failure rather than something to notice in a report.
+
 Representative run — the hardest case with aggressive backpressure:
 
 ```
@@ -147,7 +166,7 @@ structural check. Other targets:
 
 ```bash
 make sim         # simulations only
-make lint        # latch / undriven-net / hierarchy check
+make lint        # structural check, re-run at all four array geometries
 make waves       # run a case with VCD output and open GTKWave
 make check-roms  # verify committed FPGA ROMs still match the model
 make check-pins  # verify both boards' pins against their board references
@@ -255,7 +274,7 @@ rtl/fpga/          self-test, board wrappers, generated ROMs
 model/             golden.py (the specification), gen_vectors.py
 tb/                4 self-checking testbenches
 sim/               Makefile + generated vectors
-syn/yosys/         structural check that runs in CI
+syn/yosys/         structural check that runs in CI, at every geometry
 syn/quartus/       DE10-Standard build (build_de10.tcl, .sdc, pin reference)
 syn/vivado/        Zybo Z7-10 build (build_zybo.tcl, .xdc, pin reference)
 bitstreams/        prebuilt .sof / .bit with provenance
@@ -281,8 +300,9 @@ rejects it, correctly. All input ports are therefore declared `input wire`.
 
 Stated plainly — see [docs/verification.md](docs/verification.md#what-this-does-not-prove)
 for the full list. In short: there is no formal verification or SVA, no
-gate-level simulation, only the 8×8 build is synthesised for a board (the other
-geometries are simulated only), and nothing has run on physical hardware yet.
+gate-level simulation, only the 8×8 build is put through a vendor tool (the
+other geometries are simulated and structurally checked, so they have no timing
+or utilisation result), and nothing has run on physical hardware yet.
 
 ---
 

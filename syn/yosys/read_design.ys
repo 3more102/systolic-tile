@@ -1,0 +1,16 @@
+# -----------------------------------------------------------------------------
+# Reads the RTL, and nothing else.
+#
+# `hierarchy` deliberately lives outside this file. scripts/lint.sh runs the
+# structural check once per array geometry and supplies -chparam ROWS/COLS on
+# the hierarchy command, so the reads have to be separable from the elaboration.
+# -----------------------------------------------------------------------------
+
+read_verilog -sv rtl/mac_pe.sv
+read_verilog -sv rtl/skew_buffer.sv
+read_verilog -sv rtl/pe_array.sv
+read_verilog -sv rtl/accum_bank.sv
+read_verilog -sv rtl/requant.sv
+read_verilog -sv rtl/out_fifo.sv
+read_verilog -sv rtl/tile_ctrl.sv
+read_verilog -sv rtl/systolic_tile.sv

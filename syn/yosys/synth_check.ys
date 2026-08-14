@@ -1,25 +1,17 @@
 # -----------------------------------------------------------------------------
-# Tool-independent synthesis sanity check.
+# Tool-independent synthesis sanity check -- the checks themselves.
 #
-# This is not a target build -- it is the cheap gate that runs on every push, to
+# This is not a target build. It is the cheap gate that runs on every push, to
 # catch the class of mistakes that simulate fine and then bite in the vendor
 # tool: accidental latches, undriven or multiply-driven nets, and a hierarchy
 # that does not actually elaborate.
 #
-# Run:  yosys -q syn/yosys/synth_check.ys
+# The caller has already read the design (syn/yosys/read_design.ys) and run
+# `hierarchy` at one array geometry, so this file must not do either -- it would
+# undo the -chparam overrides the caller just applied.
+#
+# Run:  ./scripts/lint.sh   (or `make lint`), which sweeps every geometry.
 # -----------------------------------------------------------------------------
-
-read_verilog -sv rtl/mac_pe.sv
-read_verilog -sv rtl/skew_buffer.sv
-read_verilog -sv rtl/pe_array.sv
-read_verilog -sv rtl/accum_bank.sv
-read_verilog -sv rtl/requant.sv
-read_verilog -sv rtl/out_fifo.sv
-read_verilog -sv rtl/tile_ctrl.sv
-read_verilog -sv rtl/systolic_tile.sv
-
-# -check fails on instantiations of modules that do not exist.
-hierarchy -check -top systolic_tile
 
 proc
 opt -full
@@ -40,8 +32,3 @@ check -assert
 select -assert-none t:$dlatch
 select -assert-none t:$dlatchsr
 select -assert-none t:$sr
-
-# Coarse-grain cell counts: multipliers, adders, registers and memories, which
-# is the level at which this design's cost is actually interesting. Real area
-# and Fmax come from the vendor builds in syn/quartus and syn/vivado.
-tee -o syn/yosys/stat.txt stat -top systolic_tile

@@ -5,7 +5,7 @@ sim/vectors/
 *.vvp
 
 # ---- yosys ----
-syn/yosys/stat.txt
+syn/yosys/stat*.txt
 
 # ---- quartus ----
 syn/quartus/db/
