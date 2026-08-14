@@ -97,6 +97,12 @@ no such help: a Cyclone V DSP holds two 9×9 multipliers, so it packs all 64 PEs
 into 48 blocks unprompted. Full analysis in
 [docs/architecture.md](docs/architecture.md#timing).
 
+**Prebuilt bitstreams** for both boards are committed in
+[`bitstreams/`](bitstreams/), so you can program a board without installing a
+vendor toolchain. Each carries its source commit, tool version, timing result
+and SHA-256, all extracted from the build reports by
+`scripts/collect_bitstreams.sh` rather than written by hand.
+
 > Both bitstreams build from a clean clone, but neither has been programmed onto
 > a physical board yet. The `PASS` LED is verified in simulation
 > (`tb_selftest`), not on silicon.
@@ -128,6 +134,7 @@ make check-roms  # verify committed FPGA ROMs still match the model
 make check-pins  # verify DE10-Standard pins against the board reference
 make quartus     # DE10-Standard bitstream
 make vivado      # Zybo Z7-10 bitstream
+make bitstreams  # collect both into bitstreams/ with provenance
 ```
 
 ---
@@ -225,8 +232,9 @@ model/             golden.py (the specification), gen_vectors.py
 tb/                4 self-checking testbenches
 sim/               Makefile + generated vectors
 syn/yosys/         structural check that runs in CI
-syn/quartus/       DE10-Standard build (build_de10.tcl, .sdc)
+syn/quartus/       DE10-Standard build (build_de10.tcl, .sdc, pin reference)
 syn/vivado/        Zybo Z7-10 build (build_zybo.tcl, .xdc)
+bitstreams/        prebuilt .sof / .bit with provenance
 docs/              architecture.md, verification.md
 ```
 

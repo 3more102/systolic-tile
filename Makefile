@@ -10,6 +10,7 @@
 #   make check-pins verify DE10-Standard pins against the board reference
 #   make quartus    build the DE10-Standard bitstream   (needs Quartus 18.1+)
 #   make vivado     build the Zybo Z7-10 bitstream      (needs Vivado 2020.1+)
+#   make bitstreams copy both builds into bitstreams/ with their provenance
 # -----------------------------------------------------------------------------
 
 PYTHON     ?= python3
@@ -17,7 +18,7 @@ YOSYS      ?= yosys
 QUARTUS_SH ?= quartus_sh
 VIVADO     ?= vivado
 
-.PHONY: all sim lint vectors check-roms check-pins quartus vivado clean
+.PHONY: all sim lint vectors check-roms check-pins quartus vivado bitstreams clean
 
 all: sim lint check-pins
 
@@ -42,6 +43,11 @@ quartus:
 
 vivado:
 	cd syn/vivado && $(VIVADO) -mode batch -nojournal -nolog -source build_zybo.tcl
+
+# Run after quartus and/or vivado. Regenerates bitstreams/README.md from the
+# build reports, so the published numbers cannot drift from the published binary.
+bitstreams:
+	./scripts/collect_bitstreams.sh
 
 clean:
 	$(MAKE) -C sim clean
