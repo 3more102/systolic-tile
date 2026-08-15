@@ -1,0 +1,48 @@
+# Mutants: file|exact text to replace|replacement|what the bug is
+#
+# Each line is one single-edit bug, chosen to be a thing somebody could
+# plausibly write rather than a randomly corrupted character. Between them they
+# cover every module in rtl/ and every mechanism the design depends on: the
+# array-wide freeze, the weight shadow chain, the diagonal wavefront, K-tiling,
+# the output handshake and the requantiser's rounding.
+#
+# The "from" text must appear exactly once in the file. scripts/mutants.sh
+# checks that and stops if it does not, so a refactor that moves a line turns
+# into a loud failure instead of a mutant that silently patches nothing and is
+# then scored as a survivor.
+#
+# Deliberately absent: mutations that produce an equivalent circuit. Changing
+# `shifted > MAXV` to `shifted >= MAXV` clamps a value that already equals MAXV
+# to MAXV, for instance -- no test can kill it, and counting it as a survivor
+# would understate the suite rather than measure it.
+#
+# Two mutations were cut from this list after investigation, not on suspicion:
+#
+#   tile_ctrl.sv  a_beat's `&& en` guard, dropped
+#   accum_bank.sv v_s1's guard on the memory write, dropped
+#
+# Both looked like real hazards and both survived every case x geometry x
+# backpressure combination the suite has. Rather than take the zero kills as
+# proof, each was checked directly: a_beat has exactly one consumer
+# (systolic_tile's a_mux, feeding skew_buffer), and that consumer is itself
+# gated by `en`, so an a_beat asserted while `en` is low drives a mux nobody
+# samples. accum_bank was checked by isolating it in a standalone testbench and
+# feeding it a real beat, two bubbles, then the next real beat: the bubbles'
+# stray write always lands on the address the *next* real beat is about to
+# write to (accum_bank's address counter only advances on a valid beat), and
+# that real write always follows and overwrites it before the address is ever
+# read back -- confirmed by comparing golden and mutated accum_bank on that
+# exact sequence, not inferred from the RTL. Both are architectural properties
+# of this design, not gaps in the case list, and mutating either only measures
+# whether the suite can see through a wall it was never on the wrong side of.
+
+rtl/mac_pe.sv|end else if (en) begin|end else begin|PE datapath registers ignore the array-wide freeze
+rtl/mac_pe.sv|s_out <= s_in + prod_ext;|s_out <= s_in - prod_ext;|partial sum subtracts the product instead of adding it
+rtl/mac_pe.sv|else if (en && w_commit) w_active <= w_shadow;|else if (en && w_commit) w_active <= w_in;|weight commit takes the chain input, not the shadow register
+rtl/skew_buffer.sv|localparam int DLY = REVERSE ? (LANES - 1 - i) : i;|localparam int DLY = REVERSE ? i : (LANES - 1 - i);|input skew and output deskew delays are swapped
+rtl/skew_buffer.sv|end else if (en) begin|end else begin|delay lines keep shifting while the pipeline is frozen
+rtl/accum_bank.sv|out_valid <= v_s1 && last_s1;|out_valid <= v_s1;|results are released on every pass, not only the last
+rtl/tile_ctrl.sv|if (wcnt == (ROWS - 1)) state <= S_COMMIT;|if (wcnt == (ROWS - 2)) state <= S_COMMIT;|weight load ends one beat early
+rtl/systolic_tile.sv|wire         rq_last = (ycnt == cfg_m_len - 16'd1);|wire         rq_last = (ycnt == cfg_m_len);|y_last is off by one, so it never asserts
+rtl/systolic_tile.sv|.wr_en    (rq_valid && en),|.wr_en    (rq_valid),|FIFO write is not qualified with the clock enable
+rtl/requant.sv|= (prod_q + rnd) >>> shift1;|= (prod_q) >>> shift1;|requantiser truncates instead of rounding half-up

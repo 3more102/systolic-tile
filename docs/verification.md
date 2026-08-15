@@ -372,6 +372,101 @@ the two vendor builds closing timing.
 
 ---
 
+## The mutation gate
+
+Every gate so far answers "does the design work?" A mutation score answers the
+question underneath that: **if it didn't, would anything here notice?**
+`make mutants` (`scripts/mutants.sh`) injects one deliberate single-line bug at
+a time from [`mut/mutants.txt`](../mut/mutants.txt) into a private copy of the
+RTL and requires a reduced simulation subset to fail. A mutant that survives is
+not a false alarm — it is a real behaviour this suite cannot tell apart from
+correct, described in the language of an actual bug rather than a coverage
+percentage.
+
+```
+$ make mutants
+  mutation score for: multi:8x8:2, multi:8x8:0, sat:8x8:2, rect:4x8:0, rect:4x8:2, stress:8x8:1
+  baseline  unmutated RTL passes all 6 runs
+  killed    PE datapath registers ignore the array-wide freeze         (stress bp=1)
+  killed    partial sum subtracts the product instead of adding it     (multi bp=2)
+  killed    weight commit takes the chain input, not the shadow register (multi bp=2)
+  killed    input skew and output deskew delays are swapped            (multi bp=2)
+  killed    delay lines keep shifting while the pipeline is frozen     (multi bp=2)
+  killed    results are released on every pass, not only the last      (multi bp=2)
+  killed    weight load ends one beat early                            (multi bp=2)
+  killed    y_last is off by one, so it never asserts                  (multi bp=2)
+  killed    FIFO write is not qualified with the clock enable          (multi bp=2)
+  killed    requantiser truncates instead of rounding half-up          (multi bp=2)
+
+  mutation score: 10 / 10
+```
+
+### Why a reduced subset, and why the baseline check matters
+
+Ten mutants against the full 24-run suite would work, but it would also mean
+sim time × 10, in a job that already runs on every push. `MUT_RUNS` is six
+runs picked to kill every mutant with the least work: `multi` because K-tiling,
+ReLU and backpressure together exercise the most mechanisms in one run, `rect`
+because it is the only non-square geometry, and `stress:8x8:1` because it is
+the one entry that turned out to be load-bearing (below).
+
+The **baseline** check exists because a subset chosen for speed is a subset
+that could accidentally not exercise the design at all. If the unmutated RTL
+failed one of these six runs, every mutant would be scored "killed" for the
+wrong reason, and the number would be a fiction. `scripts/mutants.sh` checks
+the baseline first and refuses to score anything if it fails.
+
+### Fixed-string replacement, checked exactly once
+
+Each mutant's `from` text is matched with `grep -cF` and required to appear in
+the target file exactly once before the substitution runs. This is not
+defensive boilerplate: `mut/mutants.txt` is a second copy of eleven lines from
+`rtl/`, and the two *will* drift as the RTL is edited. A `from` string that no
+longer matches is a stale mutant list, not a surviving mutant, and scoring it
+as a kill or a survivor either way would be reporting the wrong thing. The
+script stops and says which line is stale instead.
+
+### Two mutants were investigated and cut, not silently dropped
+
+The first version of `mut/mutants.txt` had twelve entries. Two of them —
+dropping the `&& en` guard from `tile_ctrl`'s `a_beat`, and from `accum_bank`'s
+memory write — survived every one of the 24 simulation runs, at every
+geometry and every backpressure mode. That is the same symptom a real coverage
+gap would produce, so each was checked directly rather than assumed one way or
+the other:
+
+- **`a_beat`.** Its only consumer in `systolic_tile` is the mux feeding
+  `skew_buffer`'s input, and that skew buffer only samples its input when its
+  own `en` is high. An `a_beat` asserted while `en` is low drives a value
+  nobody is sampling — the guard is redundant *at that one call site*, not
+  missing.
+- **`accum_bank`'s write guard.** Checked by isolating `accum_bank` in a
+  standalone testbench (not the tile-level one) and feeding it a real beat, two
+  bubbles, then the next real beat, comparing the golden and mutated modules
+  cycle for cycle. `accum_bank`'s address counter only advances on a valid
+  beat, so a bubble's stray write always lands on the address the *next* real
+  beat is about to write to — and that real write always follows and
+  overwrites it before the address is ever read back. The corruption is real
+  but never observable, because nothing ever reads the state in between.
+
+Both are recorded in `mut/mutants.txt` with this reasoning, not deleted
+quietly. The alternative — deciding by eye that a mutant "should" be
+equivalent and leaving it out from the start — is exactly the kind of claim
+this whole gate exists to stop anyone from getting to assert without evidence.
+
+### What this does not measure
+
+A mutation score is a lower bound on one thing: whether the *existing* case
+list would notice specific classes of single-line bugs. It says nothing about
+bugs this list did not think to model — a two-line bug, a bug in `model/
+golden.py` itself that both the RTL and the check would agree with, or a
+timing-dependent bug gate-level and formal exist to catch. Ten mutants is also
+not exhaustive of one-line bugs in ~970 lines of RTL; it is ten specific,
+plausible ones, chosen to cover every module and every mechanism the design
+depends on.
+
+---
+
 ## The pin gate
 
 `make check-pins` diffs every pin assignment in both boards' constraint files
@@ -451,6 +546,10 @@ a verification story:
   accumulator is shrunk to 8 rows, and the gates are zero-delay. Neither
   Quartus's nor Vivado's optimiser is covered, no post-route netlist is
   simulated, and there is no timing anywhere in it.
+- **The mutation score covers ten specific bugs, not all one-line bugs.**
+  `make mutants` proves the simulation suite notices ten plausible single-edit
+  mistakes; it says nothing about the mistakes not on that list, and nothing
+  about two-line bugs or bugs in the model itself.
 - **Not yet run on hardware.** Both bitstreams build and the self-test passes in
   simulation, but neither has been programmed onto a physical board.
 - **`MAX_M` is not enforced in hardware.** Streaming more than `MAX_M` output

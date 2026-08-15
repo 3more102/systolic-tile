@@ -19,7 +19,7 @@ INT8 in, INT32 accumulate, INT8 out. 64 MACs per cycle.
 
 Every number this design produces is **bit-identical to `model/golden.py`** —
 including the awkward cases, like round-half-up on negative values and INT8
-saturation. That is checked four ways:
+saturation. That is checked five ways:
 
 1. **In simulation**, over 24 configurations covering K-tiling, ReLU, heavy
    saturation, single-beat streams, aggressive backpressure, and four array
@@ -30,6 +30,10 @@ saturation. That is checked four ways:
    so the claim survives a synthesiser rewriting the design.
 4. **On the FPGA itself** — the board runs the same vectors from ROM, compares
    against the same golden results, and lights one LED.
+5. **Against itself** — `make mutants` injects ten single-line bugs, one at a
+   time, and requires the simulation suite to notice every one, so "24
+   configurations pass" cannot quietly mean "24 configurations that don't
+   exercise much."
 
 The model, the testbench and the hardware self-test all read the *same generated
 files*. CI regenerates the committed FPGA ROMs and fails on any diff, so the
@@ -171,6 +175,42 @@ Caveat worth stating up front: this is **Yosys's** synthesis, not Quartus's or
 Vivado's, and the gates are zero-delay. It is evidence the RTL survives *a*
 synthesiser, not a claim about either vendor's optimiser.
 
+### Mutation score — 10/10
+
+Every check above answers "does the design work?". None of them answers the
+question underneath that: if it *didn't*, would anything here notice? `make
+mutants` does, by injecting one deliberate single-line bug at a time into a copy
+of the RTL and requiring the simulation suite to fail:
+
+```
+$ make mutants
+  baseline  unmutated RTL passes all 6 runs
+  killed    PE datapath registers ignore the array-wide freeze
+  killed    partial sum subtracts the product instead of adding it
+  killed    weight commit takes the chain input, not the shadow register
+  killed    input skew and output deskew delays are swapped
+  killed    delay lines keep shifting while the pipeline is frozen
+  killed    results are released on every pass, not only the last
+  killed    weight load ends one beat early
+  killed    y_last is off by one, so it never asserts
+  killed    FIFO write is not qualified with the clock enable
+  killed    requantiser truncates instead of rounding half-up
+
+  mutation score: 10 / 10
+```
+
+10/10 is the second draft of this number, not the first. Two more mutations —
+dropping the same `&& en` guard pattern from `tile_ctrl`'s activation-accept
+signal, and from `accum_bank`'s memory write — survived every one of the 24
+simulation runs on the first pass. Rather than take that as "the suite has a
+hole," each was checked directly: the `tile_ctrl` signal has exactly one
+consumer, and that consumer is separately gated by `en`, so the missing guard
+drives a wire nobody reads while frozen; the `accum_bank` write was isolated in
+a standalone testbench and shown to always land on an address that a subsequent
+real write overwrites before it is ever read. Both are architectural properties
+of this design — not gaps in the case list — and are recorded with the evidence
+in [`mut/mutants.txt`](mut/mutants.txt) rather than silently dropped.
+
 ### Hardware
 
 Both boards build and both close timing.
@@ -242,6 +282,7 @@ make sim         # simulations only
 make lint        # structural check, re-run at all four array geometries
 make formal      # bounded model check of the backpressure scheme
 make gatelevel   # synthesise to gates, re-run the testbench on the netlist
+make mutants     # mutation score: does the suite notice 10 deliberate bugs
 make waves       # run a case with VCD output and open GTKWave
 make check-roms  # verify committed FPGA ROMs still match the model
 make check-pins  # verify both boards' pins against their board references
@@ -351,6 +392,7 @@ tb/                4 self-checking testbenches
 sim/               Makefile + generated vectors
 fv/                lowering recipe for the bounded model check
 gl/                synth recipe + parameter shim for gate-level simulation
+mut/               mutant list for the mutation score, with rejected mutants explained
 syn/yosys/         structural check that runs in CI, at every geometry
 syn/quartus/       DE10-Standard build (build_de10.tcl, .sdc, pin reference)
 syn/vivado/        Zybo Z7-10 build (build_zybo.tcl, .xdc, pin reference)

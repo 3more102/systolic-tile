@@ -7,6 +7,7 @@
 #   make lint       Yosys structural / latch / driver check, every geometry
 #   make formal     bounded model check of the backpressure scheme
 #   make gatelevel  synthesise to gates and re-run the testbench on the netlist
+#   make mutants    mutation score: can the suite tell each of 10 bugs apart
 #   make vectors    regenerate simulation vectors and FPGA ROMs
 #   make check-roms verify the committed FPGA ROMs still match the model
 #   make check-pins verify both boards' pins against their board references
@@ -20,13 +21,15 @@ YOSYS      ?= yosys
 QUARTUS_SH ?= quartus_sh
 VIVADO     ?= vivado
 
-.PHONY: all sim lint formal gatelevel vectors check-roms check-pins quartus vivado \
-        bitstreams clean
+.PHONY: all sim lint formal gatelevel mutants vectors check-roms check-pins \
+        quartus vivado bitstreams clean
 
-# `formal` and `gatelevel` are deliberately not in `all`: minutes of SAT solving
-# and of Icarus elaboration, against seconds for everything else, and both have
-# their own CI job. Run `formal` before touching anything that stalls, freezes or
-# writes the output FIFO, and `gatelevel` before touching the arithmetic.
+# `formal`, `gatelevel` and `mutants` are deliberately not in `all`: minutes of
+# SAT solving, of Icarus elaboration, or of re-running the suite ten times over,
+# against seconds for everything else, and each has its own CI job. Run `formal`
+# before touching anything that stalls, freezes or writes the output FIFO,
+# `gatelevel` before touching the arithmetic, and `mutants` before trusting a new
+# test case to mean what its name says.
 all: sim lint check-pins
 
 sim:
@@ -40,6 +43,9 @@ formal:
 
 gatelevel:
 	./scripts/gatelevel.sh --self-test
+
+mutants:
+	./scripts/mutants.sh
 
 vectors:
 	$(PYTHON) model/gen_vectors.py
