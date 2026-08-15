@@ -9,18 +9,18 @@ build scripts in `syn/`, which anyone can re-run to reproduce them.
 |---|---|---|
 | File | `de10_standard.sof` | `zybo_z7_10_top.bit` |
 | Device | 5CSXFC6D6F31C6 (Cyclone V) | xc7z010clg400-1 (Zynq-7010) |
-| Tool | Quartus Prime 18.1.0 Build 625 09/12/2018 SJ Lite Edition | Vivado v2026.1 |
+| Tool | Quartus Prime 18.1.0 Build 625 09/12/2018 SJ Lite Edition | Vivado v2026.1 |
 | Clock | 50 MHz | 125 MHz |
-| Logic | 1,686 / 41,910 ( 4 % ) | 1998 / 17600 ( 11.35 % ) |
-| Registers | 3264 | 3581 / 35200 ( 10.17 % ) |
-| DSP | 48 / 112 ( 43 % ) | 80 / 80 ( 100.00 % ) |
-| Block RAM | 15 / 553 ( 3 % ) | 4 / 60 ( 6.67 % ) |
-| Timing | Fmax 100.54 MHz | setup WNS 0.508 ns |
-| Source fingerprint | `20103fde44291d49` | `4af3a2dc69eff9d2` |
+| Logic | 1,686 / 41,910 ( 4 % ) | 1998 / 17600 ( 11.35 % ) |
+| Registers | 3264 | 3581 / 35200 ( 10.17 % ) |
+| DSP | 48 / 112 ( 43 % ) | 80 / 80 ( 100.00 % ) |
+| Block RAM | 15 / 553 ( 3 % ) | 4 / 60 ( 6.67 % ) |
+| Timing | Fmax 100.54 MHz | setup WNS 0.508 ns |
+| Source fingerprint | `aa9859eb0eb45c13` | `dd1edf018219b38b` |
 
 ## Provenance
 
-- Collected at commit: `b477d6bcb6e98571ef0267660254225e00cdfc82`
+- Collected at commit: `a6e189ff81bb255bb083776840f1e3a0378497e3`
 - Working tree at collection time: **clean**
 
 The **source fingerprint** identifies the inputs that actually determine each
@@ -32,12 +32,12 @@ Recompute it from a clone and compare:
 { git rev-parse HEAD:rtl
   git rev-parse HEAD:syn/quartus/build_de10.tcl
   git rev-parse HEAD:syn/quartus/de10_standard.sdc
-} | sha256sum | cut -c1-16          # -> 20103fde44291d49
+} | sha256sum | cut -c1-16          # -> aa9859eb0eb45c13
 
 { git rev-parse HEAD:rtl
   git rev-parse HEAD:syn/vivado/build_zybo.tcl
   git rev-parse HEAD:syn/vivado/zybo_z7_10.xdc
-} | sha256sum | cut -c1-16          # -> 4af3a2dc69eff9d2
+} | sha256sum | cut -c1-16          # -> dd1edf018219b38b
 ```
 
 A mismatch means the sources moved and the binary here predates them. It does
@@ -47,8 +47,8 @@ and `make bitstreams` to bring them back into agreement.
 SHA-256 of the binaries:
 
 ```
-91daa45e1e371ccba556306ef77dcc46e612f392baffbb2990029e1624487a2f  de10_standard.sof
-e9b7f264d927cad41cd31f5ab67da4891823e92aa8f29d2e99aceb6d18c656b4  zybo_z7_10_top.bit
+203f16ad62aa9ff24cb5079d7625cfb488e3fadbd429393f86c1f4d90ff9ffcd  de10_standard.sof
+31095ae459a924114c3c7c01f79d749ca7cf30708629ba7065510805fba962f6  zybo_z7_10_top.bit
 ```
 
 ## What they do
